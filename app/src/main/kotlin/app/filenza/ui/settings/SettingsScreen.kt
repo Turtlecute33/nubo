@@ -142,24 +142,22 @@ private const val DONATE_URL =
 @Composable
 private fun Toggle(icon: ImageVector, title: String, text: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     ListItem(
-        headlineContent = { Text(title) },
         leadingContent = { Icon(icon, null) },
         supportingContent = { Text(text) },
         trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
-    )
+    ) { Text(title) }
 }
 
 @Composable
 private fun Row(icon: ImageVector, title: String, text: String, onClick: (() -> Unit)?) {
     if (onClick == null) {
         ListItem(
-            headlineContent = { Text(title) },
             leadingContent = { Icon(icon, null) },
             supportingContent = { Text(text) },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        )
+        ) { Text(title) }
     } else {
         ListItem(
             onClick = onClick,

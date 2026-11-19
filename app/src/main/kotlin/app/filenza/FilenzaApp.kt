@@ -13,6 +13,7 @@ import app.filenza.drive.Content
 import app.filenza.drive.Drive
 import app.filenza.drive.PublicLinks
 import app.filenza.drive.Uploader
+import app.filenza.media.FileProvider
 import app.filenza.media.Thumbs
 import app.filenza.net.Http
 import app.filenza.offline.Offline
@@ -71,6 +72,7 @@ class FilenzaApp : Application() {
     /** Removes every local trace of the account: caches, thumbnails, offline files, queued transfers. */
     private suspend fun wipe() {
         transfers.cancelAll()
+        FileProvider.clear()
         CameraJob.cancel(this)
         drive.clear()
         withContext(Dispatchers.IO) {

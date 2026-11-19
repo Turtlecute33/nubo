@@ -90,7 +90,6 @@ fun PublicLinkScreen(link: Links.Parsed, onClose: () -> Unit) {
     var attempt by remember(link.uuid) { mutableIntStateOf(0) }
     var busy by remember(link.uuid) { mutableStateOf(true) }
     // Logged out: the viewer of this screen, with a navigator of its own so that its Back only closes it.
-    val overlayNav = remember { Navigator() }
     var overlay by remember { mutableStateOf<Route.Viewer?>(null) }
 
     LaunchedEffect(link.uuid, attempt) {
@@ -129,7 +128,6 @@ fun PublicLinkScreen(link: Links.Parsed, onClose: () -> Unit) {
             nav.go(Route.Viewer(session, index))
         } else {
             val route = Route.Viewer(session, index)
-            overlayNav.go(route)
             overlay = route
         }
     }
@@ -199,13 +197,9 @@ fun PublicLinkScreen(link: Links.Parsed, onClose: () -> Unit) {
         }
     }
 
+    // Logged out, no route can hold the viewer: it shows over this screen and closes itself here.
     overlay?.let { route ->
-        CompositionLocalProvider(LocalNav provides overlayNav) {
-            BackHandler { overlayNav.back() }
-            Box(Modifier.fillMaxSize()) { ViewerScreen(route.session, route.index) }
-        }
-        // The viewer closes itself with nav.back(): its route leaves the stack of the overlay navigator.
-        LaunchedEffect(route) { snapshotFlow { overlayNav.current }.collect { if (it != route) overlay = null } }
+        Box(Modifier.fillMaxSize()) { ViewerScreen(route.session, route.index, onClose = { overlay = null }) }
     }
 }
 

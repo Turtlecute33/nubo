@@ -126,6 +126,5 @@ private fun Row(t: Transfer, modifier: Modifier) {
             }
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        headlineContent = { Text(t.name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) },
-    )
+    ) { Text(t.name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) }
 }
