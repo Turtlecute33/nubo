@@ -28,9 +28,11 @@ enum class FileType {
 
         fun of(name: String): FileType = map[extension(name)] ?: OTHER
 
+        /** Made one time, not at each call (review 101). */
+        private val DECODABLE = setOf("jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp")
+
         /** Images that ImageDecoder can read, so the app can make a thumbnail. */
-        fun decodable(name: String): Boolean =
-            extension(name) in setOf("jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp")
+        fun decodable(name: String): Boolean = extension(name) in DECODABLE
 
         /** A MIME type for a share or an "open with", from the name. */
         fun mime(name: String): String = android.webkit.MimeTypeMap.getSingleton()

@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.filenza.app
+import app.filenza.data.FolderView
 import app.filenza.drive.Listing
 import app.filenza.ui.Icons
 import app.filenza.ui.components.EmptyState
@@ -41,6 +43,9 @@ import app.filenza.ui.components.LoadingBox
 import app.filenza.ui.components.NameDialog
 import app.filenza.ui.components.userText
 import kotlinx.coroutines.launch
+
+/** Folders by name. */
+private val ByName = FolderView()
 
 /**
  * A full-screen picker of an own folder: for Move, uploads that other apps share, and the camera upload
@@ -61,6 +66,7 @@ fun FolderPicker(
     val folder = rememberFolder(Listing.Dir(uuid))
     val scope = rememberCoroutineScope()
     var creating by remember { mutableStateOf(false) }
+    val states = rememberSaveableStateHolder()
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         BackHandler { if (path.size > 1) path.removeAt(path.lastIndex) else onDismiss() }
@@ -85,21 +91,19 @@ fun FolderPicker(
                 }
             },
         ) { pad ->
-            val items = folder.items
+            // The state of each folder (its sort and its list place): Up shows the parent at its own place (review 97).
             Box(Modifier.fillMaxSize().padding(pad)) {
-                when {
-                    items == null && folder.error != null -> ErrorState(folder.error.orEmpty(), folder::refresh, Modifier.fillMaxSize())
-                    items == null -> LoadingBox(Modifier.fillMaxSize())
-                    else -> {
-                        val folders = items.filter { it.folder && it.uuid !in exclude }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
-                        if (folders.isEmpty()) {
-                            EmptyState(Icons.Folder, "No folders here", Modifier.fillMaxSize())
-                        } else {
-                            LazyColumn(Modifier.fillMaxSize()) {
-                                items(folders.size, key = { folders[it].uuid }) { i ->
-                                    val f = folders[i]
-                                    ItemRow(f, onClick = { path += f.uuid to f.name }, subtitle = "")
-                                }
+                states.SaveableStateProvider(uuid) {
+                    val folders = rememberSorted(remember(folder.items) { folder.items?.filter { it.folder && it.uuid !in exclude } }, ByName)
+                    when {
+                        folder.items == null && folder.error != null -> ErrorState(folder.error.orEmpty(), folder::refresh, Modifier.fillMaxSize())
+                        folder.items == null -> LoadingBox(Modifier.fillMaxSize())
+                        folders == null -> Unit // The first sort runs (one frame).
+                        folders.isEmpty() -> EmptyState(Icons.Folder, "No folders here", Modifier.fillMaxSize())
+                        else -> LazyColumn(Modifier.fillMaxSize()) {
+                            items(folders.size, key = { folders[it].uuid }) { i ->
+                                val f = folders[i]
+                                ItemRow(f, onClick = { path += f.uuid to f.name }, subtitle = "")
                             }
                         }
                     }

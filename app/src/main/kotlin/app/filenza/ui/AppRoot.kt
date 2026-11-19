@@ -64,16 +64,21 @@ fun AppRoot(nav: Navigator) {
 
 @Composable
 private fun Content(nav: Navigator, state: AccountState) {
-    AnimatedContent(state is AccountState.LoggedIn, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "root") { inside ->
-        when {
-            inside -> MainScaffold(nav)
-            state == AccountState.LoggedOut -> {
+    val motion = MaterialTheme.motionScheme
+    val enter = motion.defaultEffectsSpec<Float>()
+    val exit = motion.fastEffectsSpec<Float>()
+    // Each branch reads its own target state: during the fade the old content keeps the state that it shows
+    // (review 100).
+    AnimatedContent(state, transitionSpec = { fadeIn(enter) togetherWith fadeOut(exit) }, contentKey = { it is AccountState.LoggedIn }, label = "root") { target ->
+        when (target) {
+            is AccountState.LoggedIn -> MainScaffold(nav)
+            AccountState.LoggedOut -> {
                 // A public link opens with no account, over the login screen.
                 val link = nav.pendingLink
                 if (link != null) PublicLinkScreen(link, onClose = { nav.pendingLink = null }) else LoginScreen()
                 LaunchedEffect(Unit) { nav.reset() }
             }
-            else -> Box(Modifier.fillMaxSize())
+            AccountState.Loading -> Box(Modifier.fillMaxSize())
         }
     }
     if (state is AccountState.LoggedIn) {

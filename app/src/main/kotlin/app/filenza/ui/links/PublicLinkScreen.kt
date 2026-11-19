@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -64,6 +65,7 @@ import app.filenza.ui.nav.Navigator
 import app.filenza.ui.nav.Route
 import app.filenza.ui.viewer.ViewerScreen
 import app.filenza.ui.viewer.Viewers
+import app.filenza.util.Debounce
 import kotlinx.coroutines.CancellationException
 import java.security.GeneralSecurityException
 
@@ -81,18 +83,23 @@ fun PublicLinkScreen(link: Links.Parsed, onClose: () -> Unit) {
     val account by app.account.state.collectAsStateWithLifecycle()
     val loggedIn = account is AccountState.LoggedIn
     // Kept for the process: the return from the viewer does not open the link (and ask its password) again.
-    val session = remember(link.uuid) { LinkSessions.get(link) }
+    // The state is keyed by the whole link: the same link with a corrected key must not keep the old error
+    // (review 98). The key stays in memory (remember, not saved state).
+    val session = remember(link.uuid, link.key) { LinkSessions.get(link) }
     var opened by session::opened
     val stack = session.stack
-    var needPassword by remember(link.uuid) { mutableStateOf(false) }
-    var password by remember(link.uuid) { mutableStateOf("") }
-    var error by remember(link.uuid) { mutableStateOf<String?>(null) }
-    var attempt by remember(link.uuid) { mutableIntStateOf(0) }
-    var busy by remember(link.uuid) { mutableStateOf(true) }
+    var needPassword by remember(link.uuid, link.key) { mutableStateOf(false) }
+    var password by remember(link.uuid, link.key) { mutableStateOf("") }
+    var error by remember(link.uuid, link.key) { mutableStateOf<String?>(null) }
+    var attempt by remember(link.uuid, link.key) { mutableIntStateOf(0) }
+    var busy by remember(link.uuid, link.key) { mutableStateOf(true) }
     // Logged out: the viewer of this screen, with a navigator of its own so that its Back only closes it.
     var overlay by remember { mutableStateOf<Route.Viewer?>(null) }
+    val chooser = remember { Debounce() }
+    // The list state of each folder of the link: Up shows the parent at its own scroll place (review 97).
+    val folders = rememberSaveableStateHolder()
 
-    LaunchedEffect(link.uuid, attempt) {
+    LaunchedEffect(link.uuid, link.key, attempt) {
         if (attempt == 0 && opened != null) {
             busy = false
             return@LaunchedEffect
@@ -122,7 +129,11 @@ fun PublicLinkScreen(link: Links.Parsed, onClose: () -> Unit) {
     }
 
     fun openFile(item: Item, siblings: List<Item>) {
-        if (!Viewers.viewable(item)) return OpenWith.open(context, item)
+        // A double tap opens one chooser (review 89); Navigator.go opens one viewer.
+        if (!Viewers.viewable(item)) {
+            if (chooser.pass()) OpenWith.open(context, item)
+            return
+        }
         val (session, index) = Viewers.open(siblings, item)
         if (loggedIn) {
             nav.go(Route.Viewer(session, index))
@@ -168,12 +179,14 @@ fun PublicLinkScreen(link: Links.Parsed, onClose: () -> Unit) {
                 }
                 is Opened.Folder -> {
                     val current = stack.lastOrNull() ?: o.root
-                    LinkFolder(
-                        link = o.link,
-                        uuid = current.uuid,
-                        onFolder = { stack += it },
-                        onFile = ::openFile,
-                    )
+                    folders.SaveableStateProvider(current.uuid) {
+                        LinkFolder(
+                            link = o.link,
+                            uuid = current.uuid,
+                            onFolder = { stack += it },
+                            onFile = ::openFile,
+                        )
+                    }
                 }
                 null -> when {
                     needPassword -> PasswordForm(

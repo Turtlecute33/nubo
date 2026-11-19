@@ -4,6 +4,7 @@ import android.text.format.DateUtils
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /** Text for sizes, speeds and dates. */
 object Format {
@@ -28,16 +29,36 @@ object Format {
         ms <= 0 -> ""
         DateUtils.isToday(ms) -> "Today"
         DateUtils.isToday(ms + DateUtils.DAY_IN_MILLIS) -> "Yesterday"
-        else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ms))
+        else -> format(ms, DateFormat.MEDIUM)
     }
 
-    fun dateTime(ms: Long): String =
-        if (ms <= 0) "" else DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(ms))
+    fun dateTime(ms: Long): String = if (ms <= 0) "" else format(ms, DateFormat.MEDIUM, DateFormat.SHORT)
 
     /** A long date for headers in the photo timeline. */
     fun day(ms: Long): String = when {
         DateUtils.isToday(ms) -> "Today"
         DateUtils.isToday(ms + DateUtils.DAY_IN_MILLIS) -> "Yesterday"
-        else -> DateFormat.getDateInstance(DateFormat.LONG).format(Date(ms))
+        else -> format(ms, DateFormat.LONG)
+    }
+
+    private val formats = HashMap<Int, DateFormat>()
+    private var formatsLocale: Locale? = null
+
+    /**
+     * One formatter for each style, not one for each row (review 101). A new locale makes them again.
+     * DateFormat is not thread-safe, and the photo timeline formats off the main thread: synchronized.
+     */
+    @Synchronized
+    private fun format(ms: Long, date: Int, time: Int = -1): String {
+        val locale = Locale.getDefault()
+        if (locale != formatsLocale) {
+            formats.clear()
+            formatsLocale = locale
+        }
+        val f = formats.getOrPut(date * 10 + time + 1) {
+            if (time < 0) DateFormat.getDateInstance(date, locale) else DateFormat.getDateTimeInstance(date, time, locale)
+        }
+        f.timeZone = TimeZone.getDefault()
+        return f.format(Date(ms))
     }
 }

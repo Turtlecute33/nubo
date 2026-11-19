@@ -35,7 +35,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +46,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,12 +60,14 @@ import app.filenza.drive.Listing
 import app.filenza.drive.Usage
 import app.filenza.ui.Icons
 import app.filenza.ui.components.EmptyState
+import app.filenza.ui.components.ErrorState
 import app.filenza.ui.components.ItemRow
 import app.filenza.ui.components.LoadingBox
 import app.filenza.ui.components.PrivateTextInput
 import app.filenza.ui.drive.ItemActionsHost
 import app.filenza.ui.drive.rememberFolder
 import app.filenza.ui.drive.rememberItemActions
+import app.filenza.ui.me.rememberUsage
 import app.filenza.ui.nav.LocalNav
 import app.filenza.ui.nav.Route
 import app.filenza.ui.nav.Tab
@@ -80,9 +86,15 @@ fun HomeScreen() {
     val recents = rememberFolder(Listing.Recents)
     val actions = rememberItemActions()
     val offline by app.offline.uuids.collectAsStateWithLifecycle()
-    var usage by remember { mutableStateOf<Usage?>(null) }
+    val usageModel = rememberUsage()
+    val usage = usageModel.usage
     var linkDialog by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { usage = runCatching { app.drive.usage() }.getOrNull() }
+    val reload = {
+        recents.refresh()
+        usageModel.load(force = true)
+    }
+    val list = recents.items
+    val files = remember(list) { list?.filter { !it.folder }?.sortedByDescending { it.uploaded }?.take(MAX_RECENTS) }
 
     val x = AppTheme.extra
     val quick = listOf(
@@ -98,7 +110,7 @@ fun HomeScreen() {
     val refresh = rememberPullToRefreshState()
     PullToRefreshBox(
         isRefreshing = recents.refreshing && recents.items != null,
-        onRefresh = recents::refresh,
+        onRefresh = reload,
         state = refresh,
         modifier = Modifier.fillMaxSize(),
         indicator = {
@@ -129,14 +141,16 @@ fun HomeScreen() {
             item(key = "recentsTitle") {
                 Text("Recents", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             }
-            val list = recents.items
             when {
-                list == null -> item(key = "loading") { LoadingBox(Modifier.height(200.dp)) }
-                list.isEmpty() -> item(key = "empty") {
+                // No network and no cache: the error and "Try again", not a spinner for ever (review 48).
+                files == null && recents.error != null -> item(key = "error") {
+                    ErrorState(recents.error.orEmpty(), reload, Modifier.fillMaxWidth())
+                }
+                files == null -> item(key = "loading") { LoadingBox(Modifier.height(200.dp)) }
+                files.isEmpty() -> item(key = "empty") {
                     EmptyState(Icons.History, "Nothing recent", Modifier.fillMaxWidth().height(280.dp), message = recents.error ?: "Files that you add or change show here.")
                 }
                 else -> {
-                    val files = list.filter { !it.folder }.sortedByDescending { it.uploaded }.take(MAX_RECENTS)
                     items(files.size, key = { files[it].uuid }) { i ->
                         val item = files[i]
                         ItemRow(
@@ -163,11 +177,19 @@ private fun SearchPill(email: String, onClick: () -> Unit, onAvatar: () -> Unit)
             Icon(Icons.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(16.dp))
             Text("Search in Drive", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            // A screen reader says "Account, button", not the letter (review 87).
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer).clickable(onClick = onAvatar),
+                Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)
+                    .semantics { contentDescription = "Account" }
+                    .clickable(role = Role.Button, onClick = onAvatar),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(email.firstOrNull()?.uppercaseChar()?.toString() ?: "?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(
+                    email.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.clearAndSetSemantics {},
+                )
             }
         }
     }
@@ -190,7 +212,8 @@ private fun QuickTile(q: Quick) {
             Icon(q.icon, null, Modifier.size(28.dp), tint = q.color)
         }
         Spacer(Modifier.height(8.dp))
-        Text(q.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Two lines: a large font size must not cut the label (review 94).
+        Text(q.label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

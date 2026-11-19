@@ -51,8 +51,11 @@ import app.filenza.ui.components.ItemCollection
 import app.filenza.ui.components.ItemThumb
 import app.filenza.ui.components.LoadingBox
 import app.filenza.ui.drive.rememberFolder
-import app.filenza.ui.drive.sortedFor
+import app.filenza.ui.drive.rememberSorted
 import app.filenza.util.Format
+
+/** Folders first, then by name. */
+private val ByName = FolderView()
 
 /** The explanation at the top of a link: no account is used, and the key stays on the phone. */
 @Composable
@@ -142,13 +145,13 @@ internal fun FileCard(item: Item, onOpen: () -> Unit) {
 internal fun LinkFolder(link: FolderLink, uuid: String, onFolder: (Item) -> Unit, onFile: (Item, List<Item>) -> Unit) {
     val app = LocalContext.current.app
     val folder = rememberFolder(Listing.LinkDir(link, uuid))
-    val items = remember(folder.items) { folder.items?.sortedFor(FolderView()) }
+    val items = rememberSorted(folder.items, ByName)
     var menu by remember { mutableStateOf<Item?>(null) }
     when {
-        items == null && folder.error != null -> ErrorState(folder.error.orEmpty(), folder::refresh, Modifier.fillMaxSize())
+        folder.items == null && folder.error != null -> ErrorState(folder.error.orEmpty(), folder::refresh, Modifier.fillMaxSize())
         items == null -> Column(Modifier.fillMaxSize()) {
             LinkHeader()
-            LoadingBox(Modifier.padding(top = 48.dp))
+            if (folder.items == null) LoadingBox(Modifier.padding(top = 48.dp)) // Else the first sort runs (one frame).
         }
         else -> ItemCollection(
             items = items,

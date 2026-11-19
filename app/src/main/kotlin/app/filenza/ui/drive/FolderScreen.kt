@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -35,9 +37,11 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -84,14 +88,18 @@ fun FolderScreen(listing: Listing, title: String, isRoot: Boolean = false) {
     val actions = rememberItemActions()
     val viewKey = listing.folder ?: listing.toString()
     val view = settings.viewOf(viewKey)
-    var selection by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var selection by rememberSaveable(stateSaver = SelectionSaver) { mutableStateOf(emptySet()) }
     var sortMenu by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
     var emptying by remember { mutableStateOf(false) }
     var fabOpen by rememberSaveable { mutableStateOf(false) }
-    val items = remember(folder.items, view) { folder.items?.sortedFor(view) }
+    val items = rememberSorted(folder.items, view)
     val selected = remember(items, selection) { items.orEmpty().filter { it.uuid in selection } }
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    // A refresh can remove selected items: keep only the items that are still in the list (review 95).
+    LaunchedEffect(selected) {
+        if (items != null && selected.size != selection.size) selection = selected.mapTo(HashSet()) { it.uuid }
+    }
 
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
         listing.folder?.let { if (uris.isNotEmpty()) app.transfers.upload(it, uris) }
@@ -101,6 +109,8 @@ fun FolderScreen(listing: Listing, title: String, isRoot: Boolean = false) {
     }
 
     BackHandler(enabled = selection.isNotEmpty()) { selection = emptySet() }
+    // Back closes the open add menu first, not the folder (review 90).
+    BackHandler(enabled = fabOpen) { fabOpen = false }
 
     fun open(item: Item) {
         when {
@@ -115,7 +125,7 @@ fun FolderScreen(listing: Listing, title: String, isRoot: Boolean = false) {
         topBar = {
             if (selection.isNotEmpty()) {
                 SelectionBar(
-                    count = selection.size,
+                    count = selected.size,
                     listing = listing,
                     onClose = { selection = emptySet() },
                     onAll = { selection = items.orEmpty().map { it.uuid }.toSet() },
@@ -129,7 +139,7 @@ fun FolderScreen(listing: Listing, title: String, isRoot: Boolean = false) {
             } else {
                 LargeFlexibleTopAppBar(
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    subtitle = items?.let { { Text(count(it)) } },
+                    subtitle = folder.items?.let { { Text(count(it)) } },
                     navigationIcon = { if (!isRoot) IconAction(Icons.ArrowBack, "Back", nav::back) },
                     actions = {
                         IconAction(Icons.Search, "Search", { nav.go(Route.Search) })
@@ -185,10 +195,13 @@ fun FolderScreen(listing: Listing, title: String, isRoot: Boolean = false) {
                 PullToRefreshDefaults.LoadingIndicator(state = refresh, isRefreshing = folder.refreshing && items != null, modifier = Modifier.align(Alignment.TopCenter))
             },
         ) {
+            // The empty and error states scroll, so that pull to refresh works there too (review 91).
             when {
-                items == null && folder.error != null -> ErrorState(folder.error.orEmpty(), folder::refresh, Modifier.fillMaxSize())
-                items == null -> LoadingBox(Modifier.fillMaxSize())
-                items.isEmpty() -> EmptyFor(listing)
+                folder.items == null && folder.error != null ->
+                    ErrorState(folder.error.orEmpty(), folder::refresh, Modifier.fillMaxSize().verticalScroll(rememberScrollState()))
+                folder.items == null -> LoadingBox(Modifier.fillMaxSize())
+                items == null -> Unit // The first sort runs (one frame).
+                items.isEmpty() -> EmptyFor(listing, Modifier.fillMaxSize().verticalScroll(rememberScrollState()))
                 else -> ItemCollection(
                     items = items,
                     grid = view.grid,
@@ -239,7 +252,7 @@ private fun count(items: List<Item>): String {
 }
 
 @Composable
-private fun EmptyFor(listing: Listing) {
+private fun EmptyFor(listing: Listing, modifier: Modifier) {
     val (icon, title, text) = when (listing) {
         Listing.Trash -> Triple(Icons.Delete, "The trash is empty", null)
         Listing.Favorites -> Triple(Icons.Star, "No favourites", "Add files and folders from their menu.")
@@ -250,8 +263,14 @@ private fun EmptyFor(listing: Listing) {
         Listing.Offline -> Triple(Icons.OfflinePin, "No offline files", "Keep files on this phone from their menu.")
         else -> Triple(Icons.Folder, "This folder is empty", if (listing.writable) "Tap + to upload files or make a folder." else null)
     }
-    EmptyState(icon, title, Modifier.fillMaxSize(), message = text)
+    EmptyState(icon, title, modifier, message = text)
 }
+
+/** The selection survives a tab change. A large one is not saved, so that the saved state stays small (review 95). */
+private val SelectionSaver = Saver<Set<String>, ArrayList<String>>(
+    save = { if (it.size <= 500) ArrayList(it) else null },
+    restore = { it.toSet() },
+)
 
 @Composable
 private fun SortMenu(open: Boolean, view: FolderView, onClose: () -> Unit, onChange: (FolderView) -> Unit) {

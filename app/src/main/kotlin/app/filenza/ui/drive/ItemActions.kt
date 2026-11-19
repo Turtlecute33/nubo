@@ -49,6 +49,7 @@ import app.filenza.ui.nav.Route
 import app.filenza.ui.share.LinkSheet
 import app.filenza.ui.share.ShareSheet
 import app.filenza.ui.viewer.Viewers
+import app.filenza.util.Debounce
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -63,13 +64,18 @@ class ItemActions(private val app: FilenzaApp, private val nav: Navigator, priva
     var deleting by mutableStateOf<List<Item>>(emptyList())
     var linking by mutableStateOf<Item?>(null)
     var sharing by mutableStateOf<Item?>(null)
+    var leaving by mutableStateOf<Item?>(null)
+    private val chooser = Debounce()
 
-    /** Opens a file: an in-app viewer for the types it shows, else another app. Folders are the caller's. */
+    /**
+     * Opens a file: an in-app viewer for the types it shows, else another app. Folders are the caller's.
+     * A double tap opens one viewer ([Navigator.go]) and one chooser only (review 89).
+     */
     fun open(item: Item, siblings: List<Item>) {
         if (Viewers.viewable(item)) {
             val (session, index) = Viewers.open(siblings, item)
             nav.go(Route.Viewer(session, index))
-        } else {
+        } else if (chooser.pass()) {
             OpenWith.open(context, item)
         }
     }
@@ -169,6 +175,17 @@ fun ItemActionsHost(actions: ItemActions, listing: Listing) {
             onDismiss = { actions.deleting = emptyList() },
         )
     }
+    actions.leaving?.let { item ->
+        // There is no undo: only the owner can share the item again (review 55).
+        ConfirmDialog(
+            title = "Remove “${item.name}” from your shared items?",
+            text = "You lose access to it. Only the owner can share it with you again.",
+            confirm = "Remove",
+            destructive = true,
+            onConfirm = { actions.leave(item) },
+            onDismiss = { actions.leaving = null },
+        )
+    }
     actions.linking?.let { LinkSheet(it) { actions.linking = null } }
     actions.sharing?.let { ShareSheet(it) { actions.sharing = null } }
 }
@@ -215,7 +232,7 @@ private fun ItemMenu(item: Item, listing: Listing, offline: Boolean, a: ItemActi
                         Action(Icons.Delete, "Move to trash", act { a.trashing = listOf(item) }, destructive = true)
                     }
                     if (item.source is Source.SharedIn && listing == Listing.SharedIn) {
-                        Action(Icons.Logout, "Remove from my shared items", act { a.leave(item) }, destructive = true)
+                        Action(Icons.Logout, "Remove from my shared items", act { a.leaving = item }, destructive = true)
                     }
                 }
             }
