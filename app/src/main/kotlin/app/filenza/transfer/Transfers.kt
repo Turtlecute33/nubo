@@ -72,13 +72,17 @@ class Transfers(private val app: FilenzaApp) {
     /** Uploads content URIs that the user picked or shared into the folder [parent]. */
     fun upload(parent: String, uris: List<Uri>) {
         val resolver = app.contentResolver
-        for (uri in uris) {
-            val meta = runCatching { describe(uri) }.getOrNull()
-            val name = meta?.name ?: "File"
-            val src = UploadSource(name, resolver.getType(uri) ?: FileType.mime(name), meta?.modified ?: 0, 0) {
-                resolver.openInputStream(uri) ?: throw IOException("The file cannot be read")
+        // The provider queries can be slow (a cloud document provider): off the main thread.
+        app.scope.launch {
+            for (uri in uris) {
+                val meta = withContext(Dispatchers.IO) { runCatching { describe(uri) }.getOrNull() }
+                val name = meta?.name ?: "File"
+                val type = withContext(Dispatchers.IO) { runCatching { resolver.getType(uri) }.getOrNull() }
+                val src = UploadSource(name, type ?: FileType.mime(name), meta?.modified ?: 0, 0) {
+                    resolver.openInputStream(uri) ?: throw IOException("The file cannot be read")
+                }
+                upload(parent, src, meta?.size ?: -1)
             }
-            upload(parent, src, meta?.size ?: -1)
         }
     }
 
