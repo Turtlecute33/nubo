@@ -21,7 +21,7 @@ class Auth(private val api: Api) {
      * with [code]. Does not change [Api.key] until the login is complete.
      */
     suspend fun login(email: String, password: String, code: String?): Session {
-        val mail = email.trim().lowercase()
+        val mail = email.trim() // as typed, like the official SDKs: the server decides about letter case
         val info = api.post("/v3/auth/info", JSONObject().put("email", mail))
         val version = info.optInt("authVersion", 2)
         val salt = info.optString("salt")

@@ -77,6 +77,7 @@ class FilenzaApp : Application() {
             thumbs.clear()
             offline.clear()
             cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+            java.io.File(noBackupFilesDir, "camera-mark.json").delete()
         }
         prefs.edit { it.copy(camera = it.camera.copy(enabled = false, folder = null, folderName = ""), folderViews = emptyMap()) }
     }

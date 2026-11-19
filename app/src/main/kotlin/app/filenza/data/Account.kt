@@ -48,22 +48,18 @@ class Account(
         _state.value = AccountState.LoggedIn(s)
     }
 
-    /** Ends the session here at once; the server call runs after, and its failure does not matter. */
+    /**
+     * Ends the session on this phone. Filen has no logout or key-revoke call (research F-30): the API key
+     * stays valid on the server until a password change, but no copy of it stays here.
+     */
     suspend fun logout() {
-        val wasKey = api.key
-        withContext(Dispatchers.IO) { store.clear() }
-        _state.value = AccountState.LoggedOut
-        runCatching { if (wasKey != null) api.withKey(wasKey).post("/v3/user/logout") }
-        api.key = null
-        onLogout()
-    }
-
-    /** The server refused the key (expired or revoked): the same as a logout, with no server call. */
-    suspend fun ended() {
         if (session == null) return
         withContext(Dispatchers.IO) { store.clear() }
         api.key = null
         _state.value = AccountState.LoggedOut
         onLogout()
     }
+
+    /** The server refused the key (expired or revoked): the same as a logout. */
+    suspend fun ended() = logout()
 }
