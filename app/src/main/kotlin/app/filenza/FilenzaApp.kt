@@ -63,7 +63,7 @@ class FilenzaApp : Application() {
     override fun onCreate() {
         if (BuildConfig.DEBUG) enableStrictMode()
         super.onCreate()
-        prefs = Prefs(filesDir, scope)
+        prefs = Prefs({ filesDir }, scope)
         // The Keystore, the session file and the HTTP objects start here, never on the main thread.
         scope.launch(Dispatchers.IO) {
             prefs.load()

@@ -52,8 +52,9 @@ data class Settings(
 }
 
 /** One JSON file, written with [AtomicFile] off the main thread. */
-class Prefs(dir: File, private val scope: CoroutineScope) {
-    private val file = AtomicFile(File(dir, "settings.json"))
+class Prefs(dir: () -> File, private val scope: CoroutineScope) {
+    // Lazy: the app folder is resolved off the main thread, at the first load.
+    private val file by lazy { AtomicFile(File(dir(), "settings.json")) }
     private val writeLock = Mutex()
     private val _state = MutableStateFlow(Settings())
     val state: StateFlow<Settings> = _state.asStateFlow()
