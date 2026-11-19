@@ -172,7 +172,7 @@ class Sharing internal constructor(private val drive: Drive) {
 
     /** Shares [item] (and all inside, for a folder) with the Filen user [email]. Read only for the receiver. */
     suspend fun share(item: Item, email: String) = drive.guard {
-        val mail = email.trim().lowercase()
+        val mail = email.trim()
         val key = try {
             api.post("/v3/user/publicKey", JSONObject().put("email", mail)).getString("publicKey")
         } catch (e: ApiException) {
