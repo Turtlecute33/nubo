@@ -176,6 +176,8 @@ class Sharing internal constructor(private val drive: Drive) {
         val key = try {
             api.post("/v3/user/publicKey", JSONObject().put("email", mail)).getString("publicKey")
         } catch (e: ApiException) {
+            // Only a refused address means "no account"; an ended session or a server problem keeps its own text.
+            if (e.sessionEnded || e.http >= 500 || e.http == 429) throw e
             throw IOException("No Filen account has this email address", e)
         }
         val all = if (item.folder) listOf(item) + drive.tree(item.uuid) else listOf(item)
@@ -212,10 +214,13 @@ class Sharing internal constructor(private val drive: Drive) {
         items.map { item -> async { gate.withPermit { call(item) } } }.awaitAll()
     }
 
-    private fun hasPassword(o: JSONObject): Boolean = when (val p = o.opt("password")) {
-        is String -> p.isNotEmpty() && p != "empty" && p != "null" && p != EMPTY_HASH
-        is Boolean -> p
-        else -> false
+    private fun hasPassword(o: JSONObject): Boolean {
+        val p: Any? = o.opt("password")
+        return when (p) {
+            is String -> p.isNotEmpty() && p != "empty" && p != "null" && p != EMPTY_HASH
+            is Boolean -> p
+            else -> false
+        }
     }
 
     companion object {
