@@ -19,6 +19,7 @@ import app.filenza.net.Http
 import app.filenza.offline.Offline
 import app.filenza.transfer.Transfers
 import app.filenza.ui.Messenger
+import app.filenza.ui.viewer.Viewers
 import app.filenza.work.CameraJob
 import app.filenza.work.Notifier
 import kotlinx.coroutines.CoroutineScope
@@ -90,13 +91,14 @@ class FilenzaApp : Application() {
         FileProvider.clear()
         CameraJob.cancel(this)
         drive.clear()
+        Viewers.clear()
         withContext(Dispatchers.IO) {
             thumbs.clear()
             offline.clear()
             cacheDir.listFiles()?.forEach { it.deleteRecursively() }
             java.io.File(noBackupFilesDir, CameraJob.MARK_FILE).delete()
         }
-        prefs.edit { it.copy(camera = it.camera.copy(enabled = false, folder = null, folderName = ""), folderViews = emptyMap()) }
+        prefs.edit { it.copy(camera = it.camera.copy(enabled = false, folder = null), folderViews = emptyMap()) }
         withContext(Dispatchers.IO) { pending.delete() }
     }
 

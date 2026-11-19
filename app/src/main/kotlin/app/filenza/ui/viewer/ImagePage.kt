@@ -23,17 +23,16 @@ import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
 
 /**
- * One image: decoded in memory at about twice the screen size (enough for a 2x zoom, no more memory), with
- * the thumbnail while it loads. Pinch, pan and double tap zoom; [onZoom] tells the pager to stop swiping.
+ * One image: decoded in memory at twice the size that fits the window (enough for a 2x zoom, no more memory),
+ * with the thumbnail while it loads. Pinch, pan and double tap zoom; [onZoom] tells the pager to stop swiping.
  */
 @Composable
-internal fun ImagePage(item: Item, current: Boolean, onTap: () -> Unit, onZoom: (Boolean) -> Unit) {
+internal fun ImagePage(item: Item, current: Boolean, cache: PageCache, onTap: () -> Unit, onZoom: (Boolean) -> Unit) {
     val app = LocalContext.current.app
     val window = LocalWindowInfo.current.containerSize
-    val target = (maxOf(window.width, window.height) * 2).coerceIn(MIN_SIDE, MAX_SIDE)
-    val state = rememberLoaded(item.uuid + item.key) {
+    val state = rememberLoaded(item.uuid + item.key, cache, current, ::bytesOf) {
         val bytes = app.content.bytes(item, MAX_BYTES)
-        withContext(Dispatchers.Default) { decode(bytes, target) }
+        withContext(Dispatchers.Default) { decode(bytes, window.width, window.height) }
     }
     val zoom = rememberZoom()
     LaunchedEffect(current) { if (!current) zoom.reset() }
@@ -54,15 +53,31 @@ internal fun ImagePage(item: Item, current: Boolean, onTap: () -> Unit, onZoom: 
     }
 }
 
-private fun decode(bytes: ByteArray, target: Int): ImageBitmap =
+private fun decode(bytes: ByteArray, windowWidth: Int, windowHeight: Int): ImageBitmap =
     ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { d, info, _ ->
         val w = info.size.width
         val h = info.size.height
-        val scale = target.toFloat() / maxOf(1, maxOf(w, h))
+        val scale = decodeScale(w, h, windowWidth, windowHeight)
         if (scale < 1f) d.setTargetSize(maxOf(1, (w * scale).toInt()), maxOf(1, (h * scale).toInt()))
     }.asImageBitmap()
 
-private const val MIN_SIDE = 1024
-private const val MAX_SIDE = 6144
+/** ARGB: 4 bytes for each pixel. */
+private fun bytesOf(b: ImageBitmap): Long = b.width.toLong() * b.height * 4
+
+/**
+ * The decode scale of a [width] x [height] image in the window: twice the scale that fits the whole image in
+ * the window, not more than 1, and not more than [MAX_PIXELS] (review 54). A window of size 0 (not measured
+ * yet) counts as [FALLBACK_SIDE] square.
+ */
+internal fun decodeScale(width: Int, height: Int, windowWidth: Int, windowHeight: Int): Float {
+    val w = width.coerceAtLeast(1).toFloat()
+    val h = height.coerceAtLeast(1).toFloat()
+    val fit = minOf((windowWidth.takeIf { it > 0 } ?: FALLBACK_SIDE) / w, (windowHeight.takeIf { it > 0 } ?: FALLBACK_SIDE) / h)
+    return minOf(1f, 2f * fit, kotlin.math.sqrt(MAX_PIXELS / (w * h)))
+}
+
+private const val FALLBACK_SIDE = 1024
+/** About 64 MB of ARGB pixels: four times a large phone screen. */
+private const val MAX_PIXELS = 16_777_216f
 /** Larger images open in another app: decoding needs the whole file in memory. */
 private const val MAX_BYTES = 80L * 1000 * 1000

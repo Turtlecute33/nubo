@@ -17,10 +17,11 @@ import app.filenza.media.ChunkReader
 /**
  * The platform MediaPlayer over a [ChunkReader]: the player asks for byte ranges, the reader fetches and
  * decrypts only those chunks. No local server and no plain file. Asks for audio focus while it plays and
- * pauses when another app takes it. Call [release] when the page goes away.
+ * pauses when another app takes it. Call [release] when the page goes away. Playback starts at [startAt] ms
+ * (the place before a rotation: review 51).
  */
 @Stable
-internal class Player(app: FilenzaApp, item: Item, video: Boolean) {
+internal class Player(app: FilenzaApp, item: Item, video: Boolean, private val startAt: Int = 0) {
     private val source = ChunkReader(app.content, item).dataSource()
     private val audio = app.getSystemService(AudioManager::class.java)
     private var mp: MediaPlayer? = MediaPlayer()
@@ -38,7 +39,7 @@ internal class Player(app: FilenzaApp, item: Item, video: Boolean) {
         private set
     var duration by mutableIntStateOf(0)
         private set
-    var position by mutableIntStateOf(0)
+    var position by mutableIntStateOf(startAt)
         private set
     var width by mutableIntStateOf(0)
         private set
@@ -62,6 +63,7 @@ internal class Player(app: FilenzaApp, item: Item, video: Boolean) {
                 preparing = false
                 prepared = true
                 this@Player.duration = it.duration.coerceAtLeast(0)
+                if (startAt in 1 until this@Player.duration) it.seekTo(startAt.toLong(), MediaPlayer.SEEK_CLOSEST)
                 // this@Player: a bare start() is MediaPlayer.start() here, with no audio focus and no play state.
                 if (playWhenReady) this@Player.start()
             }

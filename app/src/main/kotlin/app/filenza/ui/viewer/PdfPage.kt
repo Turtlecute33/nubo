@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.Composable
@@ -36,6 +35,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import app.filenza.app
@@ -56,10 +56,11 @@ import kotlinx.coroutines.withContext
 /**
  * A PDF through the platform PdfRenderer. The renderer reads a proxy file descriptor ([ProxyFd]) that
  * decrypts only the chunks it asks for: no plain copy on the disk. Pages render at the screen width when
- * they come into view and go away when they leave it. Two fingers zoom and pan; one finger scrolls.
+ * they come into view and go away when they leave it. Two fingers zoom and pan; one finger scrolls. [top] is
+ * the height of the top bar.
  */
 @Composable
-internal fun PdfPage(item: Item, current: Boolean, onTap: () -> Unit, onZoom: (Boolean) -> Unit) {
+internal fun PdfPage(item: Item, current: Boolean, top: Dp, onTap: () -> Unit, onZoom: (Boolean) -> Unit) {
     val context = LocalContext.current
     var attempt by remember { mutableIntStateOf(0) }
     var doc by remember { mutableStateOf<PdfDoc?>(null) }
@@ -96,11 +97,10 @@ internal fun PdfPage(item: Item, current: Boolean, onTap: () -> Unit, onZoom: (B
     when {
         d != null -> BoxWithConstraints(Modifier.fillMaxSize().zoomable(zoom, onTap, allowDoubleTap = false, oneFingerPan = false)) {
             val width = with(LocalDensity.current) { maxWidth.roundToPx() }
-            val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             LazyColumn(
                 Modifier.fillMaxSize().zoomed(zoom),
-                contentPadding = PaddingValues(top = top + 72.dp, bottom = bottom + 24.dp),
+                contentPadding = PaddingValues(top = top, bottom = bottom + 24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(d.count, key = { it }) { i -> PdfPageImage(d, i, width) }

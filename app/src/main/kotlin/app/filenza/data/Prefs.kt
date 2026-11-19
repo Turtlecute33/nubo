@@ -26,9 +26,8 @@ data class FolderView(val grid: Boolean = false, val sort: SortBy = SortBy.NAME,
 @Immutable
 data class CameraUpload(
     val enabled: Boolean = false,
-    /** The cloud folder that gets the photos; null until the user picks one. */
+    /** The cloud folder that gets the photos; null until the user picks one. Only the UUID: no name (review 63). */
     val folder: String? = null,
-    val folderName: String = "",
     val videos: Boolean = true,
     /** Upload only on a network that is not metered (Wi-Fi, Ethernet). */
     val unmeteredOnly: Boolean = true,
@@ -112,7 +111,6 @@ class Prefs(dir: () -> File, private val scope: CoroutineScope) {
                 JSONObject()
                     .put("enabled", s.camera.enabled)
                     .put("folder", s.camera.folder ?: JSONObject.NULL)
-                    .put("folderName", s.camera.folderName)
                     .put("videos", s.camera.videos)
                     .put("unmeteredOnly", s.camera.unmeteredOnly)
                     .put("since", s.camera.since),
@@ -133,7 +131,6 @@ class Prefs(dir: () -> File, private val scope: CoroutineScope) {
                 camera = CameraUpload(
                     enabled = cam.optBoolean("enabled", false),
                     folder = cam.optString("folder").takeIf { !cam.isNull("folder") && it.isNotEmpty() },
-                    folderName = cam.optString("folderName"),
                     videos = cam.optBoolean("videos", true),
                     unmeteredOnly = cam.optBoolean("unmeteredOnly", true),
                     since = cam.optLong("since", 0),

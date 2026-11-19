@@ -34,7 +34,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -63,8 +65,11 @@ import kotlinx.coroutines.delay
 internal fun MediaPage(item: Item, video: Boolean, current: Boolean, chrome: Boolean, onTap: () -> Unit) {
     val app = LocalContext.current.app
     var attempt by remember { mutableIntStateOf(0) }
-    val player = remember(item.uuid, attempt) { Player(app, item, video) }
+    // The place in the file, in saved state (only a number): a rotation goes on from it (review 51).
+    var place by rememberSaveable { mutableIntStateOf(0) }
+    val player = remember(item.uuid, attempt) { Player(app, item, video, startAt = place) }
     DisposableEffect(player) { onDispose { player.release() } }
+    LaunchedEffect(player) { snapshotFlow { player.position }.collect { place = it } }
     LaunchedEffect(player, current) { if (current) player.prepare(play = true) else player.pause() }
     LifecycleResumeEffect(player) { onPauseOrDispose { player.pause() } }
     LaunchedEffect(player, player.playing) {

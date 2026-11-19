@@ -1,13 +1,20 @@
 package app.filenza.ui.photos
 
+import android.os.SystemClock
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import app.filenza.FilenzaApp
+import app.filenza.app
 import app.filenza.data.AccountState
 import app.filenza.drive.Item
+import app.filenza.drive.Listing
 import app.filenza.ui.components.userText
 import app.filenza.util.FileType
 import app.filenza.util.Format
@@ -17,6 +24,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -27,8 +36,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 class Day(val key: Long, val label: String, val items: List<Item>)
 
 /**
- * The media of the last read photo folder, while the process lives. Tab changes show it at once. It goes
- * away when the session ends, so that another account never sees it. Memory only, never on the disk.
+ * The media of the last read photo folder, while the process lives. Tab changes show it at once, with no new
+ * tree read while it is fresh (review 52). It goes away when the session ends, so that another account never
+ * sees it. Memory only, never on the disk. It also keeps the name of the photo folder, because the settings
+ * file keeps only the UUID (review 63).
  */
 internal object PhotoCache {
     @Volatile
@@ -37,20 +48,77 @@ internal object PhotoCache {
     @Volatile
     var media: List<Item>? = null
 
+    /** When the read of [media] started (elapsed ms). */
+    @Volatile
+    var readAt = 0L
+
+    /** When a folder of the drive last changed (elapsed ms). */
+    @Volatile
+    private var changedAt = 0L
+
+    /** The photo folder UUID and its name. */
+    @Volatile
+    private var named: Pair<String, String>? = null
+
     private val watching = AtomicBoolean(false)
 
-    /** Clears the cache at each logout. Starts once for the process. */
+    /**
+     * Clears the cache at each logout, and marks it old at each drive change, also while Photos does not show.
+     * Starts once for the process.
+     */
     fun watch(app: FilenzaApp) {
         if (!watching.compareAndSet(false, true)) return
         app.scope.launch {
             app.account.state.collect { if (it !is AccountState.LoggedIn) clear() }
         }
+        app.scope.launch {
+            app.drive.changed.collect { if (affects(it)) changedAt = SystemClock.elapsedRealtime() }
+        }
+    }
+
+    /** True when the media of [uuid] are here, newer than the last drive change, and not older than [FRESH_MS]. */
+    fun fresh(uuid: String): Boolean =
+        folder == uuid && media != null && readAt > changedAt && SystemClock.elapsedRealtime() - readAt < FRESH_MS
+
+    /** Only folder changes can change the photos; offline, link and share changes cannot. */
+    fun affects(change: Listing?): Boolean = change == null || change is Listing.Dir
+
+    fun name(uuid: String?): String? = named?.takeIf { it.first == uuid }?.second
+
+    fun name(uuid: String, name: String) {
+        named = uuid to name
     }
 
     fun clear() {
         folder = null
         media = null
+        readAt = 0
+        named = null
     }
+
+    private const val FRESH_MS = 5 * 60_000L
+}
+
+/** The name of the photo folder [uuid]: from memory, else read once from the server. Null while not known. */
+@Composable
+internal fun rememberFolderName(uuid: String?): String? {
+    val app = LocalContext.current.app
+    var name by remember(uuid) { mutableStateOf(PhotoCache.name(uuid)) }
+    if (uuid != null && name == null) LaunchedEffect(uuid) {
+        PhotoCache.watch(app)
+        val read = try {
+            app.drive.item(uuid, folder = true)?.name
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        if (read != null) {
+            PhotoCache.name(uuid, read)
+            name = read
+        }
+    }
+    return name
 }
 
 /**
@@ -71,7 +139,7 @@ class PhotosModel(private val app: FilenzaApp, private val scope: CoroutineScope
         private set
     private var job: Job? = null
 
-    /** Shows [uuid]'s media: from the cache when it has them, then from the server. */
+    /** Shows [uuid]'s media: from the cache when it has them, then from the server if the cache is not fresh. */
     fun show(uuid: String?) {
         if (uuid == folder && (media != null || refreshing)) return
         folder = uuid
@@ -83,7 +151,10 @@ class PhotosModel(private val app: FilenzaApp, private val scope: CoroutineScope
             val grouped = withContext(Dispatchers.Default) { group(cached) }
             if (media === cached) days = grouped
         }
-        if (uuid != null) refresh() else job?.cancel()
+        when {
+            uuid == null -> job?.cancel()
+            !PhotoCache.fresh(uuid) -> refresh()
+        }
     }
 
     fun refresh() {
@@ -92,6 +163,7 @@ class PhotosModel(private val app: FilenzaApp, private val scope: CoroutineScope
         refreshing = true
         job = scope.launch {
             try {
+                val started = SystemClock.elapsedRealtime()
                 val tree = app.drive.tree(uuid)
                 val (list, grouped) = withContext(Dispatchers.Default) {
                     val l = tree.filter { !it.folder && (it.type == FileType.IMAGE || it.type == FileType.VIDEO) }.sortedByDescending(::time)
@@ -99,6 +171,7 @@ class PhotosModel(private val app: FilenzaApp, private val scope: CoroutineScope
                 }
                 PhotoCache.folder = uuid
                 PhotoCache.media = list
+                PhotoCache.readAt = started
                 media = list
                 days = grouped
                 error = null
@@ -107,17 +180,18 @@ class PhotosModel(private val app: FilenzaApp, private val scope: CoroutineScope
             } catch (e: Exception) {
                 error = userText(e)
             } finally {
-                refreshing = false
+                // A cancelled read ends while the next read runs: only the last read clears the flag (review 96).
+                if (job === coroutineContext.job) refreshing = false
             }
         }
     }
 
     /**
-     * Reads again after drive changes. Camera upload sends one change for each file: the read waits until
+     * Reads again after folder changes. Camera upload sends one change for each file: the read waits until
      * the changes stop for a moment, so that a burst gives one read.
      */
     suspend fun watch() {
-        app.drive.changed.collectLatest {
+        app.drive.changed.filter(PhotoCache::affects).collectLatest {
             delay(QUIET_MS)
             if (folder != null) refresh()
         }

@@ -1,6 +1,7 @@
 package app.filenza.ui.viewer
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,9 +11,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -21,8 +25,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -32,7 +38,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.filenza.app
@@ -52,17 +60,24 @@ import app.filenza.util.FileType
 fun ViewerScreen(session: Long, index: Int, onClose: (() -> Unit)? = null) {
     val nav = LocalNav.current
     val close = onClose ?: nav::back
-    val items = remember(session) { Viewers.get(session) }
-    if (items.isNullOrEmpty()) {
+    val activity = LocalActivity.current
+    val opened = remember(session) { Viewers.get(session) }
+    val items = opened?.items
+    if (opened == null || items.isNullOrEmpty()) {
         LaunchedEffect(Unit) { close() }
         return
     }
     if (onClose != null) BackHandler(onBack = onClose)
+    // A rotation keeps the loaded pages; when the viewer closes, they go (review 51).
+    DisposableEffect(session) { onDispose { if (activity?.isChangingConfigurations != true) Viewers.release(session) } }
 
     ViewerTheme {
         val pager = rememberPagerState(initialPage = index.coerceIn(0, items.lastIndex)) { items.size }
         var chrome by rememberSaveable { mutableStateOf(true) }
         var zoomed by remember { mutableStateOf(false) }
+        // Text and PDF pages start below the top bar: its measured height, so a large font is not cut (review 94).
+        var bar by remember { mutableIntStateOf(0) }
+        val top = if (bar > 0) with(LocalDensity.current) { bar.toDp() } else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
         LaunchedEffect(pager.settledPage) { zoomed = false }
         ImmersiveBars(visible = chrome)
 
@@ -70,6 +85,8 @@ fun ViewerScreen(session: Long, index: Int, onClose: (() -> Unit)? = null) {
             HorizontalPager(
                 state = pager,
                 key = { items[it].uuid },
+                // The pages next to the current one stay: a swipe back does not load again (review 51).
+                beyondViewportPageCount = 1,
                 userScrollEnabled = !zoomed,
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
@@ -77,11 +94,11 @@ fun ViewerScreen(session: Long, index: Int, onClose: (() -> Unit)? = null) {
                 val current = pager.settledPage == page
                 val toggle = { chrome = !chrome }
                 when (item.type) {
-                    FileType.IMAGE -> ImagePage(item, current, toggle) { if (current) zoomed = it }
+                    FileType.IMAGE -> ImagePage(item, current, opened.cache, toggle) { if (current) zoomed = it }
                     FileType.VIDEO -> MediaPage(item, video = true, current = current, chrome = chrome, onTap = toggle)
                     FileType.AUDIO -> MediaPage(item, video = false, current = current, chrome = chrome, onTap = toggle)
-                    FileType.PDF -> PdfPage(item, current, toggle) { if (current) zoomed = it }
-                    FileType.TEXT, FileType.CODE -> TextPage(item, mono = item.type == FileType.CODE)
+                    FileType.PDF -> PdfPage(item, current, top, toggle) { if (current) zoomed = it }
+                    FileType.TEXT, FileType.CODE -> TextPage(item, mono = item.type == FileType.CODE, current = current, cache = opened.cache, top = top)
                     else -> PageMessage(item, "Filenza cannot show this type of file.", null)
                 }
             }
@@ -91,18 +108,18 @@ fun ViewerScreen(session: Long, index: Int, onClose: (() -> Unit)? = null) {
                 enter = fadeIn() + slideInVertically { -it },
                 exit = fadeOut() + slideOutVertically { -it },
             ) {
-                TopBar(items[pager.currentPage], "${pager.currentPage + 1} / ${items.size}", close)
+                TopBar(items[pager.currentPage], "${pager.currentPage + 1} / ${items.size}", close, Modifier.onSizeChanged { bar = it.height })
             }
         }
     }
 }
 
 @Composable
-private fun TopBar(item: Item, counter: String, onBack: () -> Unit) {
+private fun TopBar(item: Item, counter: String, onBack: () -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     val app = context.app
     Box(
-        Modifier.fillMaxWidth()
+        modifier.fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
             .statusBarsPadding()
             .padding(bottom = 16.dp),
