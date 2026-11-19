@@ -73,6 +73,15 @@ for the interface. It has no native code, no WebView and no dynamic code loading
 
 Filenza is not published yet. Build it from the source (below).
 
+Before you install a release APK, check the signing certificate. Its SHA-256 fingerprint is:
+
+```text
+020142d2d84c7684bcb87f6ce08190aa1b2d213236077eb464d1ff8aa615cadd
+```
+
+Compare it with the output of `apksigner verify --print-certs <file>.apk`, or use AppVerifier.
+Do not install an APK with a different certificate.
+
 ## Build
 
 Requirements: Android SDK with platform 37, JDK 21.
