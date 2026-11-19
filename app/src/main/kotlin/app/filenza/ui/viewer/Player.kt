@@ -62,7 +62,8 @@ internal class Player(app: FilenzaApp, item: Item, video: Boolean) {
                 preparing = false
                 prepared = true
                 this@Player.duration = it.duration.coerceAtLeast(0)
-                if (playWhenReady) start()
+                // this@Player: a bare start() is MediaPlayer.start() here, with no audio focus and no play state.
+                if (playWhenReady) this@Player.start()
             }
             setOnVideoSizeChangedListener { _, w, h ->
                 width = w

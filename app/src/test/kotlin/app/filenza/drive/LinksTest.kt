@@ -63,6 +63,9 @@ class LinksTest {
         // Hex that does not give printable key text.
         assertNull(Links.parse("https://app.filen.io/f/$uuid#${"00".repeat(32)}"))
         assertNull(Links.parse("not a link"))
+        // A bad escape after one decode: the old form must not decode two times (a crash from any web page).
+        assertNull(Links.parse("https://app.filen.io/#/d/$uuid%23%25zz"))
+        assertNull(Links.parse("https://app.filen.io/d/$uuid%23%25zz"))
     }
 
     @Test

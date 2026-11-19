@@ -51,21 +51,24 @@ object Links {
         if (uri.scheme != "https" || uri.host?.lowercase() !in HOSTS) return null
         val path = uri.rawPath.orEmpty().trim('/').split('/')
         val fragment = uri.rawFragment.orEmpty()
-        val (kind, uuid, rawKey) = when {
+        // Decode each part once only. URI accepts only valid escapes in the raw parts, so this decode cannot throw;
+        // a second decode of decoded text can ("%25zz" -> "%zz"), and a crash here is open to any web page.
+        fun decode(raw: String) = URLDecoder.decode(raw, Charsets.UTF_8)
+        val (kind, uuid, keyText) = when {
             path.size == 2 && path[0] in setOf("f", "d") -> {
                 // Some apps send the key after an encoded '#' (%23) in the path, not in the fragment.
                 val inPath = path[1].indexOf("%23", ignoreCase = true)
                 val id = if (inPath >= 0) path[1].substring(0, inPath) else path[1]
-                Triple(if (path[0] == "d") "folder" else "file", id, if (inPath >= 0) path[1].substring(inPath + 3) else fragment)
+                Triple(if (path[0] == "d") "folder" else "file", id, decode(if (inPath >= 0) path[1].substring(inPath + 3) else fragment))
             }
             fragment.startsWith("/d/") || fragment.startsWith("/f/") -> {
-                val rest = URLDecoder.decode(fragment.substring(3), Charsets.UTF_8)
+                val rest = decode(fragment.substring(3))
                 Triple(if (fragment[1] == 'f') "folder" else "file", rest.substringBefore('#'), rest.substringAfter('#', ""))
             }
             else -> return null
         }
         if (!UUID.matches(uuid)) return null
-        val key = decodeKey(URLDecoder.decode(rawKey, Charsets.UTF_8)) ?: return null
+        val key = decodeKey(keyText) ?: return null
         return Parsed(kind == "folder", uuid.lowercase(), key)
     }
 

@@ -78,7 +78,11 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
      */
     suspend fun uploadChunk(uuid: String, index: Int, parent: String, uploadKey: String, data: ByteArray): Pair<String, String> {
         val q = "uuid=${enc(uuid)}&index=$index&parent=${enc(parent)}&uploadKey=${enc(uploadKey)}&hash=${Bytes.sha512(data).hex()}"
-        val headers = mapOf("Authorization" to "Bearer ${key ?: throw ApiException("api_key_not_found", 401)}")
+        // HttpEngine refuses a request body with no Content-Type (IllegalArgumentException at start).
+        val headers = mapOf(
+            "Authorization" to "Bearer ${key ?: throw ApiException("api_key_not_found", 401)}",
+            "Content-Type" to "application/octet-stream",
+        )
         val o = retrying { parse(transport.send("POST", "$INGEST/v3/upload?$q", headers, data)) }.optJSONObject("data") ?: JSONObject()
         return o.optString("region") to o.optString("bucket")
     }
