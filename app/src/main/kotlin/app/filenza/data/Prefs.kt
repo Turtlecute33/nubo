@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
@@ -67,7 +68,15 @@ class Prefs(dir: () -> File, private val scope: CoroutineScope) {
 
     fun edit(change: (Settings) -> Settings) {
         _state.update(change)
-        scope.launch(Dispatchers.IO) { writeLock.withLock { write(_state.value) } }
+        scope.launch(Dispatchers.IO) {
+            writeLock.withLock {
+                // A full disk must not crash the app: the settings stay in memory, the file keeps the last copy (review 82).
+                try {
+                    write(_state.value)
+                } catch (_: IOException) {
+                }
+            }
+        }
     }
 
     fun setView(folder: String, view: FolderView) = edit {

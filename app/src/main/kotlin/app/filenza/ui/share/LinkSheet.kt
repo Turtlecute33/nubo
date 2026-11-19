@@ -147,7 +147,7 @@ fun LinkSheet(item: Item, onDismiss: () -> Unit) {
                             onCopy = {
                                 SecretClip.copy(context, "Filen link", s.url)
                                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                                app.messenger.show("Link copied. The clipboard clears in 1 minute.")
+                                app.messenger.show("Link copied. The app clears it when you come back, or after 1 minute in the app.")
                             },
                             onSend = {
                                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, s.url)

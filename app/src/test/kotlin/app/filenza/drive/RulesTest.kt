@@ -39,14 +39,17 @@ class RulesTest {
         val account = MasterKey("0123456789abcdefghijklmnopqrstuv".encodeToByteArray())
         val meta = JSONObject().put("name", "photo.jpg").put("size", "2048").put("mime", "image/jpeg")
             .put("key", "abcdefghijklmnopqrstuvwxyzABCDEF").put("lastModified", 1_700_000_000_000L).put("blake3", "ab".repeat(32))
-        val row = JSONObject().put("uuid", "u1").put("parent", "p").put("metadata", account.encrypt(meta.toString()))
+        val u1 = "0f8c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b"
+        val row = JSONObject().put("uuid", u1).put("parent", "p").put("metadata", account.encrypt(meta.toString()))
             .put("chunks", 1).put("region", "de-1").put("bucket", "b").put("version", 2).put("timestamp", 1_700_000_000L).put("favorited", 1)
         val item = Decode.file(row, Source.Own, account::decrypt)!!
         assertEquals("photo.jpg", item.name)
         assertEquals(2048, item.size)
         assertTrue(item.favorite)
         assertEquals(1_700_000_000_000L, item.uploaded)
-        assertEquals("Item(file u1)", item.toString()) // no name, no key in logs
+        assertEquals("Item(file $u1)", item.toString()) // no name, no key in logs
+        // Review 60: the UUID goes into file paths.
+        assertNull(Decode.file(JSONObject(row.toString()).put("uuid", ".."), Source.Own, account::decrypt))
 
         val traversal = JSONObject(meta.toString()).put("name", "../evil")
         assertNull(Decode.file(JSONObject(row.toString()).put("metadata", account.encrypt(traversal.toString())), Source.Own, account::decrypt))

@@ -1,10 +1,18 @@
 package app.filenza.drive
 
+import app.filenza.FakeTransport
+import app.filenza.FakeTransport.Companion.fail
+import app.filenza.FakeTransport.Companion.ok
+import app.filenza.api.Api
+import app.filenza.api.ApiException
 import app.filenza.crypto.DataKey
 import app.filenza.crypto.MasterKey
 import app.filenza.crypto.hex
+import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -73,16 +81,43 @@ class LinksTest {
         val found = assertNotNull(Links.find("Here: https://app.filen.io/d/$uuid#$hexKey thanks"))
         assertTrue(found.folder)
         assertNull(Links.find("https://example.com and https://app.filen.io/f/$uuid"))
+        // Review 66: a full stop or a bracket after the link.
+        assertEquals(key, Links.find("See https://app.filen.io/d/$uuid#$hexKey.")?.key)
+        assertEquals(key, Links.find("(https://app.filen.io/f/$uuid#$hexKey), ok")?.key)
+        assertEquals(key, Links.find("Old: https://app.filen.io/#/d/$uuid%23$key!")?.key)
     }
 
     @Test
     fun urlRoundTrip() {
-        for (folder in listOf(false, true)) {
-            val parsed = assertNotNull(Links.parse(Links.url(folder, uuid, key)))
-            assertEquals(folder, parsed.folder)
-            assertEquals(uuid, parsed.uuid)
-            assertEquals(key, parsed.key)
+        // Review 57: a v3 folder key is 64 hex characters, so its link has 128.
+        val v3 = "0123456789abcdef".repeat(4)
+        for (k in listOf(key, v3)) {
+            for (folder in listOf(false, true)) {
+                val parsed = assertNotNull(Links.parse(Links.url(folder, uuid, k)))
+                assertEquals(folder, parsed.folder)
+                assertEquals(uuid, parsed.uuid)
+                assertEquals(k, parsed.key)
+            }
         }
+        assertIs<DataKey>(Links.metaKey(assertNotNull(Links.parse(Links.url(true, uuid, v3))).key))
+        // 128 hex characters that do not give 64 hex characters.
+        assertNull(Links.parse("https://app.filen.io/d/$uuid#${"7a".repeat(64)}"))
+    }
+
+    @Test
+    fun aBusyServerIsNotAWrongPassword() = runTest {
+        // Review 64: only a refusal means a wrong password.
+        var busy = true
+        val fake = FakeTransport { r ->
+            when (r.path) {
+                "/v3/file/link/password" -> ok(JSONObject().put("hasPassword", true).put("salt", JSONObject.NULL))
+                else -> if (busy) fail("internal_error", 503) else fail("wrong_password")
+            }
+        }
+        val link = Links.Parsed(folder = false, uuid = uuid, key = key)
+        assertEquals(503, assertFailsWith<ApiException> { PublicLinks(Api(fake)).open(link, "pw") }.http)
+        busy = false
+        assertEquals("wrong_password", assertFailsWith<ApiException> { PublicLinks(Api(fake)).open(link, "pw") }.code)
     }
 
     @Test

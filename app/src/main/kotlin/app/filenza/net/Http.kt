@@ -28,8 +28,9 @@ import kotlin.coroutines.resumeWithException
 /** One HTTP exchange. [Http] is the implementation; tests use a scripted fake. */
 interface Transport {
     /**
-     * Sends one request and reads the whole answer (at most [maxBytes]). Any status is a result; only network
-     * errors throw (as [IOException]). No redirects: the Filen hosts do not use them, so a redirect is an error.
+     * Sends one request and reads the whole answer (at most [maxBytes], else [TooLarge]). Any status is a result;
+     * only network errors throw (as [IOException]). No redirects: the Filen hosts do not use them, so a redirect is
+     * an error. No retry here: `Api` is the only place that retries (review 45).
      */
     suspend fun send(
         method: String,
@@ -42,6 +43,9 @@ interface Transport {
     class Response(val code: Int, val body: ByteArray) {
         val text: String get() = body.decodeToString()
     }
+
+    /** The answer is larger than the limit. A new try gets the same answer, so it is not a network error (review 65). */
+    class TooLarge : IOException("The answer from Filen is too large")
 
     companion object {
         const val MAX_BODY = 32 shl 20
@@ -94,13 +98,10 @@ class Http(private val context: Context) : Transport {
 
     override suspend fun send(method: String, url: String, headers: Map<String, String>, body: ByteArray?, maxBytes: Int): Transport.Response {
         requireHttps(url)
-        var attempt = 0
-        while (true) {
-            try {
-                return withIdleTimeout { activity -> once(method, url, headers, body, maxBytes, activity) }
-            } catch (e: HttpException) {
-                if (e !is NetworkException || !e.isImmediatelyRetryable || ++attempt > 1) throw readable(e)
-            }
+        return try {
+            withIdleTimeout { activity -> once(method, url, headers, body, maxBytes, activity) }
+        } catch (e: HttpException) {
+            throw readable(e)
         }
     }
 
@@ -191,7 +192,7 @@ class Http(private val context: Context) : Transport {
         override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
             activity.set(SystemClock.elapsedRealtime())
             byteBuffer.flip()
-            if (out.size() + byteBuffer.remaining() > maxBytes) return abort(request, IOException("Answer too large"))
+            if (out.size() + byteBuffer.remaining() > maxBytes) return abort(request, Transport.TooLarge())
             val bytes = ByteArray(byteBuffer.remaining())
             byteBuffer.get(bytes)
             out.write(bytes)

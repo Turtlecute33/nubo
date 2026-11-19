@@ -18,23 +18,28 @@ class ApiException(val code: String, val http: Int) : IOException("Filen error $
     val sessionEnded: Boolean get() = code in SESSION_CODES
     val needs2fa: Boolean get() = code == "enter_2fa"
 
+    /** A busy or failing server, not a refusal of the request: a later try can work (review 64). */
+    val transient: Boolean get() = http >= 500 || http == 429 || code == "rate_limited"
+
     val userText: String
         get() = when {
             code == "enter_2fa" -> "Enter the code from your authenticator app"
             code == "wrong_2fa" || code == "invalid_2fa" -> "The two-factor code is wrong"
             code == "email_or_password_wrong" || code == "invalid_params" && http == 400 -> "The email or the password is wrong"
             code == "account_not_activated" || code == "email_not_activated" -> "Activate the account from the email that Filen sent"
-            code == "account_locked" || code == "too_many_requests" || http == 429 -> "Too many tries. Wait a few minutes."
+            code == "account_locked" || code == "too_many_requests" || code == "rate_limited" || http == 429 -> "Too many tries. Wait a few minutes."
             code == "storage_limit_reached" || code == "max_storage_reached" -> "Your Filen storage is full"
             code == "file_not_found" || code == "folder_not_found" || http == 404 -> "The item is not there any more"
             code == "link_password_wrong" || code == "wrong_password" -> "The link password is wrong"
+            code == "subscription_needed" -> "Public links need a paid Filen plan"
             sessionEnded -> "The session ended. Log in again."
             http >= 500 -> "Filen is not available now. Try again later."
             else -> "Filen refused the request ($code)"
         }
 
     private companion object {
-        val SESSION_CODES = setOf("api_key_not_found", "invalid_api_key", "unauthorized")
+        /** Only the code that the research shows (F-30, F-83). An unknown code must not log out and delete offline files (review 71). */
+        val SESSION_CODES = setOf("api_key_not_found")
     }
 }
 
@@ -84,7 +89,7 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
             "Content-Type" to "application/octet-stream",
         )
         val o = retrying { parse(transport.send("POST", "$INGEST/v3/upload?$q", headers, data)) }.optJSONObject("data") ?: JSONObject()
-        return o.optString("region") to o.optString("bucket")
+        return o.optText("region") to o.optText("bucket")
     }
 
     /** Downloads one encrypted chunk (at most 1 MiB + nonce + tag). No API key: the chunk is useless without the file key. */
@@ -101,19 +106,22 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
         } catch (_: JSONException) {
             throw ApiException(if (r.code >= 500) "server_error" else "bad_answer", r.code)
         }
-        if (!o.optBoolean("status")) throw ApiException(o.optString("code").ifEmpty { "error" }, r.code)
+        if (!o.optBoolean("status")) throw ApiException(o.optText("code").ifEmpty { "error" }, r.code)
         return o
     }
 
-    /** Network errors and 5xx/429 get two more tries with a short wait; API errors do not. */
+    /**
+     * The only retry of the app (review 45): network errors and 5xx/429 get two more tries with a short wait; API
+     * errors and a too large answer (review 65) do not.
+     */
     private suspend fun <T> retrying(block: suspend () -> T): T {
         var attempt = 0
         while (true) {
             try {
                 return block()
             } catch (e: IOException) {
-                val transient = e !is ApiException || e.http >= 500 || e.http == 429
-                if (!transient || ++attempt > 2) throw e
+                val again = e !is Transport.TooLarge && (e !is ApiException || e.http >= 500 || e.http == 429)
+                if (!again || ++attempt > 2) throw e
                 delay(700L * attempt * attempt)
             }
         }
@@ -127,4 +135,13 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
 
         private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8)
     }
+}
+
+/**
+ * Like [JSONObject.optString], but a JSON null gives [fallback]. Android's org.json gives the text "null" for it
+ * (review 61). The JVM tests use another org.json, so a test must put [JSONObject.NULL] itself.
+ */
+fun JSONObject.optText(name: String, fallback: String = ""): String {
+    val v: Any? = opt(name)
+    return if (v == null || v == JSONObject.NULL) fallback else v.toString()
 }

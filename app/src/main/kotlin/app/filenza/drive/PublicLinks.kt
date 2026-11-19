@@ -2,6 +2,7 @@ package app.filenza.drive
 
 import app.filenza.api.Api
 import app.filenza.api.ApiException
+import app.filenza.api.optText
 import app.filenza.crypto.DataKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,22 +28,24 @@ class PublicLinks(private val api: Api) {
     private suspend fun file(link: Links.Parsed, password: String?): Opened {
         val info = api.postAnon("/v3/file/link/password", JSONObject().put("uuid", link.uuid))
         if (info.optBoolean("hasPassword") && password.isNullOrEmpty()) throw PasswordNeeded()
-        // Android's org.json gives "null" for a JSON null.
-        val hashed = withContext(Dispatchers.Default) { Links.hashPassword(password, info.optString("salt").takeIf { it != "null" }.orEmpty()) }
+        val hashed = withContext(Dispatchers.Default) { Links.hashPassword(password, info.optText("salt")) }
         val o = try {
             api.postAnon("/v3/file/link/info", JSONObject().put("uuid", link.uuid).put("password", hashed))
         } catch (e: ApiException) {
-            if (info.optBoolean("hasPassword")) throw ApiException("wrong_password", e.http) else throw e
+            // Only a refusal means a wrong password; a busy server keeps its own text (review 64).
+            if (info.optBoolean("hasPassword") && !e.transient) throw ApiException("wrong_password", e.http) else throw e
         }
         val key = DataKey.parse(link.key)
         val version = o.optInt("version", 2)
         return withContext(Dispatchers.Default) {
             val fields = Ops.fieldKey(key, version)
             val name = fields.decrypt(o.getString("name"))
-            if (!Decode.validName(name)) throw ApiException("bad_answer", 0)
+            val uuid = o.getString("uuid")
+            // The UUID is a part of file paths (review 60).
+            if (!Decode.validName(name) || !Decode.isUuid(uuid)) throw ApiException("bad_answer", 0)
             Opened.File(
                 Item(
-                    uuid = o.getString("uuid"),
+                    uuid = uuid,
                     parent = "",
                     name = name,
                     folder = false,
@@ -64,18 +67,19 @@ class PublicLinks(private val api: Api) {
     private suspend fun folder(link: Links.Parsed, password: String?): Opened {
         val info = api.postAnon("/v3/dir/link/info", JSONObject().put("uuid", link.uuid))
         if (info.optBoolean("hasPassword") && password.isNullOrEmpty()) throw PasswordNeeded()
-        val hashed = withContext(Dispatchers.Default) { Links.hashPassword(password, info.optString("salt").takeIf { it != "null" }.orEmpty()) }
+        val hashed = withContext(Dispatchers.Default) { Links.hashPassword(password, info.optText("salt")) }
         val key = Links.metaKey(link.key)
         val rootUuid = info.getString("parent")
+        if (!Decode.isUuid(rootUuid)) throw ApiException("bad_answer", 0) // a part of file paths (review 60)
         val meta = withContext(Dispatchers.Default) { JSONObject(key.decrypt(info.getString("metadata"))) }
-        val name = meta.optString("name").takeIf(Decode::validName) ?: "Shared folder"
+        val name = meta.optText("name").takeIf(Decode::validName) ?: "Shared folder"
         val folderLink = FolderLink(link.uuid, link.key, hashed)
         // A wrong password shows at the first listing; check it now, so that the user can try again here.
         if (info.optBoolean("hasPassword")) {
             try {
                 api.postAnon("/v3/dir/link/content", JSONObject().put("uuid", link.uuid).put("password", hashed).put("parent", rootUuid))
             } catch (e: ApiException) {
-                throw ApiException("wrong_password", e.http)
+                throw if (e.transient) e else ApiException("wrong_password", e.http)
             }
         }
         val root = Item(uuid = rootUuid, parent = "", name = name, folder = true, created = Decode.ms(info.optLong("timestamp")), source = Source.Link(link.uuid))

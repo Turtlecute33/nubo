@@ -22,9 +22,11 @@ object Links {
         override fun toString() = "Link(${if (folder) "folder" else "file"} $uuid)"
     }
 
-    private val UUID = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
     private val HOSTS = setOf("app.filen.io", "drive.filen.io", "filen.io", "www.filen.io")
     private val CANDIDATE = Regex("https://[^\\s\"'<>]+")
+
+    /** Text after a link in a sentence or in brackets; no key ends with one of them. */
+    private val TRAILING = charArrayOf('.', ',', ';', ':', '!', '?', ')', ']', '}')
 
     /** The key of link metadata: `003` for a 64-hex key, else `002` with the key text. */
     fun metaKey(key: String): MetaKey =
@@ -34,8 +36,8 @@ object Links {
     fun url(folder: Boolean, linkUuid: String, key: String): String =
         "https://app.filen.io/${if (folder) "d" else "f"}/$linkUuid#${key.encodeToByteArray().hex()}"
 
-    /** The first Filen link in [text] (a share or a paste), or null. */
-    fun find(text: String): Parsed? = CANDIDATE.findAll(text).firstNotNullOfOrNull { parse(it.value) }
+    /** The first Filen link in [text] (a share or a paste), or null. A full stop or a bracket after it is not part of it (review 66). */
+    fun find(text: String): Parsed? = CANDIDATE.findAll(text).firstNotNullOfOrNull { parse(it.value.trimEnd(*TRAILING)) }
 
     /**
      * Reads both URL forms: `https://app.filen.io/f/<uuid>#<hex key>` (f = file, d = folder) and the old
@@ -67,14 +69,18 @@ object Links {
             }
             else -> return null
         }
-        if (!UUID.matches(uuid)) return null
+        if (!Decode.isUuid(uuid)) return null
         val key = decodeKey(keyText) ?: return null
         return Parsed(kind == "folder", uuid.lowercase(), key)
     }
 
-    /** The key is the 32-character key text, or its hex form. */
+    /**
+     * The key is the 32-character key text, or its hex form. A v3 folder key is 64 hex characters; the web app
+     * writes its hex form, 128 characters, and so does [url] (review 57).
+     */
     private fun decodeKey(text: String): String? = when {
         text.length == 64 && text.isHex() -> text.unhex().takeIf { b -> b.all { it in 0x20..0x7e } }?.decodeToString()
+        text.length == 128 && text.isHex() -> text.unhex().decodeToString().takeIf { it.isHex() }
         text.length == 32 -> text
         else -> null
     }

@@ -17,12 +17,16 @@ import app.filenza.drive.Links
 import app.filenza.ui.AppRoot
 import app.filenza.ui.lock.AppLock
 import app.filenza.ui.nav.Navigator
+import app.filenza.ui.share.SecretClip
 import app.filenza.ui.theme.FilenzaTheme
 import app.filenza.ui.theme.edgeToEdge
 
 /** The only activity. Takes shares (files to upload, Filen links) and applies the window protections. */
 class MainActivity : ComponentActivity() {
     private val nav: Navigator by viewModels()
+
+    /** True from a stop (not a rotation) to the next focus: the user comes back to the app. */
+    private var stopped = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         edgeToEdge(dark = false)
@@ -34,7 +38,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) take(intent)
         setContent {
             val settings by app.prefs.state.collectAsStateWithLifecycle()
-            LaunchedEffect(settings.blockScreenshots) { protect(settings.blockScreenshots) }
+            LaunchedEffect(settings.blockScreenshots, settings.appLock) { protect(settings.blockScreenshots, settings.appLock) }
             FilenzaTheme(settings) { AppRoot(nav) }
         }
     }
@@ -47,13 +51,24 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         // Not for a configuration change: the lock would show after each rotation.
-        if (!isChangingConfigurations) AppLock.onBackground(app.prefs.value.appLock)
+        if (!isChangingConfigurations) {
+            AppLock.onBackground(app.prefs.value.appLock)
+            stopped = true
+        }
     }
 
-    /** No screenshots, screen recording or recents preview while [on]. */
-    private fun protect(on: Boolean) {
-        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        setRecentsScreenshotEnabled(!on)
+    /** The app can read the clipboard only with the focus: then it clears a copied link (review 49). */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) return
+        SecretClip.onFocus(this, returned = stopped)
+        stopped = false
+    }
+
+    /** No screenshots or screen recording while [secure]; no recents preview while [secure] or [locked] (review 50). */
+    private fun protect(secure: Boolean, locked: Boolean) {
+        if (secure) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        setRecentsScreenshotEnabled(!(secure || locked))
     }
 
     /**
@@ -78,8 +93,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun foreignContent(uri: Uri): Boolean =
-        uri.scheme == ContentResolver.SCHEME_CONTENT && uri.authority?.startsWith(packageName) == false
+    /** A content URI of another app. A user prefix ("0@") can name this app's own provider: refuse an '@' (review 62). */
+    private fun foreignContent(uri: Uri): Boolean {
+        val authority = uri.authority ?: return false
+        return uri.scheme == ContentResolver.SCHEME_CONTENT && '@' !in authority && !authority.startsWith(packageName)
+    }
 
     /** Holds the system splash screen until the session file is read, so that no login screen flashes. */
     private fun keepSplashUntilReady() {
