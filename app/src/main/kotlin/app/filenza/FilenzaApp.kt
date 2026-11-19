@@ -46,7 +46,7 @@ class FilenzaApp : Application() {
     private val vault by lazy { Vault() }
     val http by lazy { Http(this) }
     val api by lazy { Api(http) }
-    val account by lazy { Account(api, SessionStore(noBackupFilesDir, vault), ::wipe) }
+    val account by lazy { Account(api, SessionStore(noBackupFilesDir, vault), { java.io.File(noBackupFilesDir, WIPE_MARK).createNewFile() }, ::wipe) }
     val offline by lazy { Offline(this, { account.session?.cacheKey }) }
     val content by lazy { Content(api, offline) }
     val drive by lazy { Drive(api, account, offline, scope, messenger::show) }
@@ -84,7 +84,8 @@ class FilenzaApp : Application() {
 
     /** Removes every local trace of the account: caches, thumbnails, offline files, queued transfers. */
     private suspend fun wipe() {
-        // A mark until the wipe ends: the next start finishes a wipe that a process death stopped (review 74).
+        // A mark until the wipe ends: the next start finishes a wipe that a process death stopped. A logout makes
+        // it before it deletes the session (review 74).
         val pending = java.io.File(noBackupFilesDir, WIPE_MARK)
         withContext(Dispatchers.IO) { pending.createNewFile() }
         transfers.cancelAll()

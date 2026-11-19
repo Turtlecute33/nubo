@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
@@ -41,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -89,6 +91,11 @@ fun MainScaffold(nav: Navigator) {
     val snackbar = remember { SnackbarHostState() }
     val holder = rememberSaveableStateHolder()
     val full = nav.current is Route.FullScreen
+    // The keyboard covers the tab bar: hide the bar then, so that a screen pads for the keyboard only (review 92).
+    val ime = WindowInsets.ime
+    val density = LocalDensity.current
+    val keyboard by remember(ime, density) { derivedStateOf { ime.getBottom(density) > 0 } }
+    val bar = !full && !keyboard
 
     LaunchedEffect(Unit) {
         app.messenger.messages.collect { m ->
@@ -111,7 +118,7 @@ fun MainScaffold(nav: Navigator) {
         androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
             // The tab bar takes the navigation bar inset: the screens above it must not add it again, or their
             // add button floats too high (review 86).
-            Box(Modifier.weight(1f).then(if (full) Modifier else Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)))) {
+            Box(Modifier.weight(1f).then(if (!bar) Modifier else Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)))) {
                 Crossfade(nav.tab, animationSpec = tabFade, label = "tab") { tab ->
                     holder.SaveableStateProvider(tab.name) { TabStack(nav, tab) }
                 }
@@ -123,7 +130,7 @@ fun MainScaffold(nav: Navigator) {
                 // Above the navigation bar in the full-screen viewer; above the tab bar the inset is consumed (review 85).
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 8.dp))
             }
-            AnimatedVisibility(!full, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
+            AnimatedVisibility(bar, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
                 NavigationBar {
                     tabs.forEach { t ->
                         val selected = nav.tab == t.tab

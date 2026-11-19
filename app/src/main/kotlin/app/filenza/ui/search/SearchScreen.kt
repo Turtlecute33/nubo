@@ -4,12 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -130,9 +127,9 @@ fun SearchScreen() {
                 )
             }
         }
-        // The last results stay above the keyboard (review 92). The tab bar under this box already holds the
-        // system bar height, so that part of the keyboard height does not count two times.
-        Box(Modifier.fillMaxSize().consumeWindowInsets(WindowInsets.navigationBars).imePadding()) {
+        // The last results stay above the keyboard (review 92). The tab bar hides while the keyboard shows, so
+        // this box reaches the bottom of the screen and pads for the whole keyboard.
+        Box(Modifier.fillMaxSize().imePadding()) {
             when {
                 error != null -> ErrorState(error.orEmpty(), { error = null; tree = null }, Modifier.fillMaxSize())
                 index == null -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {

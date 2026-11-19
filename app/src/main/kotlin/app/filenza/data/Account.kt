@@ -24,6 +24,8 @@ sealed interface AccountState {
 class Account(
     private val api: Api,
     private val store: SessionStore,
+    /** Runs on an IO thread before the session file goes: it marks the wipe as pending (review 74). */
+    private val beforeLogout: () -> Unit,
     private val onLogout: suspend () -> Unit,
 ) {
     private val _state = MutableStateFlow<AccountState>(AccountState.Loading)
@@ -54,7 +56,10 @@ class Account(
      */
     suspend fun logout() {
         if (session == null) return
-        withContext(Dispatchers.IO) { store.clear() }
+        withContext(Dispatchers.IO) {
+            beforeLogout()
+            store.clear()
+        }
         api.key = null
         _state.value = AccountState.LoggedOut
         onLogout()

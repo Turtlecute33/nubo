@@ -62,7 +62,10 @@ class Prefs(dir: () -> File, private val scope: CoroutineScope) {
 
     /** Reads the file. Call once, off the main thread, before the UI shows. */
     fun load() {
-        _state.value = runCatching { parse(JSONObject(file.readFully().decodeToString())) }.getOrDefault(Settings())
+        val json = runCatching { JSONObject(file.readFully().decodeToString()) }.getOrNull()
+        _state.value = json?.let { runCatching { parse(it) }.getOrNull() } ?: Settings()
+        // A file of 0.1.0 has the camera folder name: write the file again without it (review 63).
+        if (json?.optJSONObject("camera")?.has("folderName") == true) edit { it }
     }
 
     fun edit(change: (Settings) -> Settings) {

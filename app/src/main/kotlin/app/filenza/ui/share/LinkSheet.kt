@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.filenza.api.ApiException
 import app.filenza.app
 import app.filenza.drive.Item
 import app.filenza.drive.LinkState
@@ -79,6 +80,8 @@ fun LinkSheet(item: Item, onDismiss: () -> Unit) {
     val linkable = remember(item) { sharing.canLink(item) }
     var state by remember { mutableStateOf<LinkState?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    // A refusal for the plan: a new try gets the same answer, so the sheet shows no "Try again" (review 84).
+    var final by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
     var expiration by remember { mutableStateOf("never") }
@@ -102,6 +105,7 @@ fun LinkSheet(item: Item, onDismiss: () -> Unit) {
             throw e
         } catch (e: Exception) {
             error = userText(e)
+            final = (e as? ApiException)?.code == "subscription_needed"
         }
     }
 
@@ -136,8 +140,10 @@ fun LinkSheet(item: Item, onDismiss: () -> Unit) {
                 )
                 s == null && error != null -> Column(Modifier.padding(24.dp)) {
                     Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.height(12.dp))
-                    FilledTonalButton(onClick = { attempt++ }) { Text("Try again") }
+                    if (!final) {
+                        Spacer(Modifier.height(12.dp))
+                        FilledTonalButton(onClick = { attempt++ }) { Text("Try again") }
+                    }
                 }
                 s == null -> LoadingBox(Modifier.padding(vertical = 48.dp))
                 else -> {
