@@ -27,7 +27,8 @@ class PublicLinks(private val api: Api) {
     private suspend fun file(link: Links.Parsed, password: String?): Opened {
         val info = api.postAnon("/v3/file/link/password", JSONObject().put("uuid", link.uuid))
         if (info.optBoolean("hasPassword") && password.isNullOrEmpty()) throw PasswordNeeded()
-        val hashed = withContext(Dispatchers.Default) { Links.hashPassword(password, info.optString("salt")) }
+        // Android's org.json gives "null" for a JSON null.
+        val hashed = withContext(Dispatchers.Default) { Links.hashPassword(password, info.optString("salt").takeIf { it != "null" }.orEmpty()) }
         val o = try {
             api.postAnon("/v3/file/link/info", JSONObject().put("uuid", link.uuid).put("password", hashed))
         } catch (e: ApiException) {

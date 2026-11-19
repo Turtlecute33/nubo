@@ -98,15 +98,23 @@ class Uploader(private val drive: Drive) {
             .put("metadata", ring.encryptMeta(item.metaJson()))
             .put("version", ring.version)
         drive.lock.write {
-            if (size == 0L) {
-                api.post("/v3/upload/empty", body)
-            } else {
-                if (place == null) throw IOException("Upload failed")
-                api.post("/v3/upload/done", body.put("chunks", count).put("rm", Bytes.alnum(32)).put("uploadKey", uploadKey))
+            try {
+                if (size == 0L) {
+                    api.post("/v3/upload/empty", body)
+                } else {
+                    if (place == null) throw IOException("Upload failed")
+                    api.post("/v3/upload/done", body.put("chunks", count).put("rm", Bytes.alnum(32)).put("uploadKey", uploadKey))
+                }
+            } catch (e: app.filenza.api.ApiException) {
+                // A retry after a lost answer can get an error for a call that worked: the file is there then (review 29).
+                val there = runCatching {
+                    api.post("/v3/file/exists", JSONObject().put("nameHashed", ring.hashName(name)).put("parent", parent)).optString("uuid") == uuid
+                }.getOrDefault(false)
+                if (!there) throw e
             }
         }
-        drive.sharing.propagate(parent, listOf(item))
         drive.invalidate(Listing.Dir(parent), Listing.Recents)
+        drive.sharing.propagateAfter(parent, listOf(item))
         item
     }
 

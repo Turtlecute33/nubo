@@ -97,7 +97,8 @@ fun MeScreen() {
             text = "Filenza deletes the session, the offline files, the thumbnails and the queued transfers from this phone. Your files stay in your Filen drive.",
             confirm = "Log out",
             destructive = true,
-            onConfirm = { scope.launch { app.account.logout() } },
+            // The app scope: this screen goes away during the logout, and the cleanup must finish.
+            onConfirm = { app.scope.launch { app.account.logout() } },
             onDismiss = { leaving = false },
         )
     }

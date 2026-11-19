@@ -65,6 +65,16 @@ class RulesTest {
     }
 
     @Test
+    fun offlineIndexKeepsTheSource() {
+        val base = Item(uuid = "u", parent = "p", name = "a.txt", folder = false, size = 3, key = "k".repeat(32), chunks = 1)
+        for (source in listOf(Source.Own, Source.SharedIn("a@example.org"), Source.SharedOut("b@example.org"), Source.Link("l1"))) {
+            assertEquals(source, Item.fromJson(JSONObject(base.copy(source = source).toJson().toString())).source)
+        }
+        // An unknown creation time is left out, not written as 0 (1970 in the official apps).
+        assertTrue(!JSONObject(base.metaJson()).has("creation"))
+    }
+
+    @Test
     fun settingsSurviveTheFile() {
         val s = Settings(theme = ThemeMode.DARK, pureBlack = true, appLock = true, folderViews = mapOf("x" to FolderView(grid = true, sort = SortBy.SIZE)))
         assertEquals(s, Prefs.parse(JSONObject(Prefs.toJson(s).toString())))

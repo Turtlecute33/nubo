@@ -142,8 +142,10 @@ private class PdfDoc(private val pfd: ParcelFileDescriptor, private val renderer
             check(!closed)
             renderer.openPage(index).use { page ->
                 val ratio = page.height.toFloat() / page.width.coerceAtLeast(1)
-                val w = width.coerceIn(1, MAX_WIDTH)
-                val bitmap = createBitmap(w, (w * ratio).toInt().coerceAtLeast(1))
+                // A very tall page (a receipt) gets a narrower bitmap, so that no page takes more than MAX_PIXELS.
+                val fit = kotlin.math.sqrt(MAX_PIXELS / ratio.coerceAtLeast(0.01f)).toInt()
+                val w = width.coerceIn(1, MAX_WIDTH).coerceAtMost(fit.coerceAtLeast(1))
+                val bitmap = createBitmap(w, (w * ratio).toInt().coerceIn(1, MAX_PIXELS))
                 bitmap.eraseColor(android.graphics.Color.WHITE)
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 bitmap.asImageBitmap() to ratio
@@ -179,3 +181,6 @@ private class PdfDoc(private val pfd: ParcelFileDescriptor, private val renderer
 private const val A4 = 1.414f
 /** A page bitmap of at most this width: about 12 MB for an A4 page. */
 private const val MAX_WIDTH = 1600
+
+/** About 32 MB of ARGB pixels for one page. */
+private const val MAX_PIXELS = 8_000_000

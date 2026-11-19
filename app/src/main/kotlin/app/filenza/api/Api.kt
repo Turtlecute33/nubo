@@ -14,7 +14,8 @@ import java.net.URLEncoder
  * is never shown: it can name items. DESIGN §8.
  */
 class ApiException(val code: String, val http: Int) : IOException("Filen error $code ($http)") {
-    val sessionEnded: Boolean get() = code in SESSION_CODES || http == 401
+    /** Only the server's own code counts: a 401 from a proxy or a captive portal must not delete local data. */
+    val sessionEnded: Boolean get() = code in SESSION_CODES
     val needs2fa: Boolean get() = code == "enter_2fa"
 
     val userText: String
@@ -51,8 +52,8 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
             .optJSONObject("data") ?: JSONObject()
 
     /** POST a JSON body to the gateway and return `data` (an empty object when there is none). */
-    suspend fun post(path: String, body: JSONObject = JSONObject()): JSONObject =
-        call("POST", GATEWAY + path, body.toString().encodeToByteArray())
+    suspend fun post(path: String, body: JSONObject = JSONObject(), retry: Boolean = true): JSONObject =
+        call("POST", GATEWAY + path, body.toString().encodeToByteArray(), retry)
 
     suspend fun get(path: String): JSONObject = call("GET", GATEWAY + path, null)
 
@@ -60,15 +61,15 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
     suspend fun postArray(path: String, body: JSONObject = JSONObject()): org.json.JSONArray =
         callRaw("POST", GATEWAY + path, body.toString().encodeToByteArray()).optJSONArray("data") ?: org.json.JSONArray()
 
-    private suspend fun call(method: String, url: String, body: ByteArray?): JSONObject =
-        callRaw(method, url, body).optJSONObject("data") ?: JSONObject()
+    private suspend fun call(method: String, url: String, body: ByteArray?, retry: Boolean = true): JSONObject =
+        callRaw(method, url, body, retry).optJSONObject("data") ?: JSONObject()
 
-    private suspend fun callRaw(method: String, url: String, body: ByteArray?): JSONObject {
+    private suspend fun callRaw(method: String, url: String, body: ByteArray?, retry: Boolean = true): JSONObject {
         val headers = buildMap {
             put("Content-Type", "application/json")
             key?.let { put("Authorization", "Bearer $it") }
         }
-        return retrying { parse(transport.send(method, url, headers, body)) }
+        return if (retry) retrying { parse(transport.send(method, url, headers, body)) } else parse(transport.send(method, url, headers, body))
     }
 
     /**
@@ -84,7 +85,8 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
 
     /** Downloads one encrypted chunk (at most 1 MiB + nonce + tag). No API key: the chunk is useless without the file key. */
     suspend fun downloadChunk(region: String, bucket: String, uuid: String, index: Int): ByteArray = retrying {
-        val r = transport.send("GET", "$EGEST/${enc(region)}/${enc(bucket)}/${enc(uuid)}/$index", maxBytes = CHUNK + 1024)
+        // 2 MiB: a v1 chunk can be base64 text, about 1.4 MB for 1 MiB of data (research F-54, F-56).
+        val r = transport.send("GET", "$EGEST/${enc(region)}/${enc(bucket)}/${enc(uuid)}/$index", maxBytes = 2 * CHUNK)
         if (r.code != 200) throw ApiException("chunk_${r.code}", r.code)
         r.body
     }

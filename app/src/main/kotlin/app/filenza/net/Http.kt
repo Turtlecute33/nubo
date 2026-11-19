@@ -13,12 +13,15 @@ import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.URI
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -55,7 +58,8 @@ interface Transport {
  */
 class Http(private val context: Context) : Transport {
     private val lock = Any()
-    private var engine: HttpEngine = build()
+    // Built at the first request, off the main thread (it loads the platform network stack and makes a folder).
+    private var engine: HttpEngine? = null
     private var active = 0
     private var lastUse = SystemClock.elapsedRealtime()
     private val executor = Dispatchers.IO.asExecutor()
@@ -72,11 +76,15 @@ class Http(private val context: Context) : Transport {
 
     private fun acquire(): HttpEngine = synchronized(lock) {
         val now = SystemClock.elapsedRealtime()
+        var e = engine
         // shutdown() refuses while a request runs: then keep the old engine (two engines cannot share the storage path).
-        if (active == 0 && now - lastUse > IDLE_MS && runCatching { engine.shutdown() }.isSuccess) engine = build()
+        if (e == null || active == 0 && now - lastUse > IDLE_MS && runCatching { e.shutdown() }.isSuccess) {
+            e = build()
+            engine = e
+        }
         active++
         lastUse = now
-        engine
+        e
     }
 
     private fun release() = synchronized(lock) {
@@ -89,24 +97,50 @@ class Http(private val context: Context) : Transport {
         var attempt = 0
         while (true) {
             try {
-                return withTimeoutOrNull(TIMEOUT_MS) { once(method, url, headers, body, maxBytes) } ?: throw IOException("Connection timed out")
+                return withIdleTimeout { activity -> once(method, url, headers, body, maxBytes, activity) }
             } catch (e: HttpException) {
                 if (e !is NetworkException || !e.isImmediatelyRetryable || ++attempt > 1) throw readable(e)
             }
         }
     }
 
-    private suspend fun once(method: String, url: String, headers: Map<String, String>, body: ByteArray?, maxBytes: Int): Transport.Response {
+    /**
+     * Fails when no byte goes up or comes down for [IDLE_TIMEOUT_MS]. A total limit would fail every 1 MiB chunk
+     * on a slow link; this one fails only a dead connection.
+     */
+    private suspend fun <T> withIdleTimeout(block: suspend (AtomicLong) -> T): T = coroutineScope {
+        val activity = AtomicLong(SystemClock.elapsedRealtime())
+        val watchdog = launch {
+            while (true) {
+                delay(IDLE_TIMEOUT_MS / 6)
+                if (SystemClock.elapsedRealtime() - activity.get() > IDLE_TIMEOUT_MS) throw IOException("Connection timed out")
+            }
+        }
+        try {
+            block(activity)
+        } finally {
+            watchdog.cancel()
+        }
+    }
+
+    private suspend fun once(
+        method: String,
+        url: String,
+        headers: Map<String, String>,
+        body: ByteArray?,
+        maxBytes: Int,
+        activity: AtomicLong,
+    ): Transport.Response {
         val engine = acquire()
         try {
             return suspendCancellableCoroutine { cont ->
-                val callback = Callback(cont, maxBytes)
+                val callback = Callback(cont, maxBytes, activity)
                 val request = engine.newUrlRequestBuilder(url, executor, callback)
                     .setHttpMethod(method)
                     .setCacheDisabled(true)
                     .apply {
                         headers.forEach { (k, v) -> addHeader(k, v) }
-                        if (body != null) setUploadDataProvider(BytesUpload(body), executor)
+                        if (body != null) setUploadDataProvider(BytesUpload(body, activity), executor)
                     }
                     .build()
                 cont.invokeOnCancellation { request.cancel() }
@@ -118,7 +152,7 @@ class Http(private val context: Context) : Transport {
     }
 
     /** A request body from memory (chunks are at most 1 MiB + 28 bytes). Rewinds for a retry after a redirect or a reset. */
-    private class BytesUpload(private val data: ByteArray) : UploadDataProvider() {
+    private class BytesUpload(private val data: ByteArray, private val activity: AtomicLong) : UploadDataProvider() {
         private var pos = 0
 
         override fun getLength(): Long = data.size.toLong()
@@ -127,6 +161,7 @@ class Http(private val context: Context) : Transport {
             val n = minOf(buffer.remaining(), data.size - pos)
             buffer.put(data, pos, n)
             pos += n
+            activity.set(SystemClock.elapsedRealtime())
             sink.onReadSucceeded(false)
         }
 
@@ -139,6 +174,7 @@ class Http(private val context: Context) : Transport {
     private class Callback(
         private val cont: CancellableContinuation<Transport.Response>,
         private val maxBytes: Int,
+        private val activity: AtomicLong,
     ) : UrlRequest.Callback {
         private val buffer = ByteBuffer.allocateDirect(BUFFER)
         private val out = ByteArrayOutputStream()
@@ -147,9 +183,13 @@ class Http(private val context: Context) : Transport {
         override fun onRedirectReceived(request: UrlRequest, info: UrlResponseInfo, newLocationUrl: String) =
             abort(request, IOException("Unexpected redirect"))
 
-        override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) = request.read(buffer)
+        override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
+            activity.set(SystemClock.elapsedRealtime())
+            request.read(buffer)
+        }
 
         override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
+            activity.set(SystemClock.elapsedRealtime())
             byteBuffer.flip()
             if (out.size() + byteBuffer.remaining() > maxBytes) return abort(request, IOException("Answer too large"))
             val bytes = ByteArray(byteBuffer.remaining())
@@ -179,7 +219,7 @@ class Http(private val context: Context) : Transport {
         /** The same on every device: no model, OS version or app version. */
         const val USER_AGENT = "Filenza"
         private const val BUFFER = 128 shl 10
-        private const val TIMEOUT_MS = 60_000L
+        private const val IDLE_TIMEOUT_MS = 60_000L
         private const val IDLE_MS = 5 * 60_000L
 
         fun requireHttps(url: String) {

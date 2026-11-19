@@ -27,6 +27,8 @@ class Drive(
     private val account: Account,
     private val offline: Offline,
     internal val scope: CoroutineScope,
+    /** Shows a short warning to the user (the snackbar). */
+    internal val warn: (String) -> Unit = {},
 ) {
     internal val lock = WriteLock(api, scope)
     private val cache = object : LinkedHashMap<Listing, List<Item>>(64, 0.75f, true) {
@@ -58,8 +60,8 @@ class Drive(
             Listing.Favorites -> content("favorites")
             Listing.Trash -> content("trash")
             Listing.Links -> content("links")
-            Listing.SharedIn -> sharedIn(JSONObject().put("uuid", "shared-in"))
-            is Listing.SharedDir -> sharedIn(JSONObject().put("uuid", listing.uuid))
+            Listing.SharedIn -> sharedIn(JSONObject().put("uuid", "shared-in"), "")
+            is Listing.SharedDir -> sharedIn(JSONObject().put("uuid", listing.uuid), listing.owner)
             Listing.SharedOut -> sharedOut()
             Listing.Offline -> offline.items()
             is Listing.LinkDir -> linkContent(listing)
@@ -120,15 +122,16 @@ class Drive(
         }
     }
 
-    private suspend fun sharedIn(body: JSONObject): List<Item> {
+    /** [owner]: the sharer of the root item; rows inside a shared folder do not name it. */
+    private suspend fun sharedIn(body: JSONObject, owner: String): List<Item> {
         val data = api.post("/v3/shared/in", body)
         val ring = keys()
         val decrypt = { text: String -> shared(ring, text) }
         return withContext(Dispatchers.Default) {
             data.optJSONArray("folders").objects().mapNotNull { o ->
-                Decode.folder(o, Source.SharedIn(o.optString("sharerEmail")), "metadata", decrypt)
+                Decode.folder(o, Source.SharedIn(o.optString("sharerEmail").ifEmpty { owner }), "metadata", decrypt)
             } + data.optJSONArray("uploads").objects().mapNotNull { o ->
-                Decode.file(o, Source.SharedIn(o.optString("sharerEmail")), decrypt)
+                Decode.file(o, Source.SharedIn(o.optString("sharerEmail").ifEmpty { owner }), decrypt)
             }
         }
     }

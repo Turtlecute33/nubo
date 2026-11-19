@@ -52,7 +52,12 @@ object Links {
         val path = uri.rawPath.orEmpty().trim('/').split('/')
         val fragment = uri.rawFragment.orEmpty()
         val (kind, uuid, rawKey) = when {
-            path.size == 2 && path[0] in setOf("f", "d") -> Triple(if (path[0] == "d") "folder" else "file", path[1], fragment)
+            path.size == 2 && path[0] in setOf("f", "d") -> {
+                // Some apps send the key after an encoded '#' (%23) in the path, not in the fragment.
+                val inPath = path[1].indexOf("%23", ignoreCase = true)
+                val id = if (inPath >= 0) path[1].substring(0, inPath) else path[1]
+                Triple(if (path[0] == "d") "folder" else "file", id, if (inPath >= 0) path[1].substring(inPath + 3) else fragment)
+            }
             fragment.startsWith("/d/") || fragment.startsWith("/f/") -> {
                 val rest = URLDecoder.decode(fragment.substring(3), Charsets.UTF_8)
                 Triple(if (fragment[1] == 'f') "folder" else "file", rest.substringBefore('#'), rest.substringAfter('#', ""))

@@ -36,9 +36,18 @@ class Content(private val api: Api, private val local: ChunkSource) {
     /** The whole file in memory; for viewers of small files. Throws when the file is larger than [max]. */
     suspend fun bytes(item: Item, max: Long): ByteArray {
         if (item.size > max) throw IOException("File too large to open here")
-        val out = java.io.ByteArrayOutputStream(item.size.toInt().coerceAtLeast(0))
-        write(item, out) { }
-        return out.toByteArray()
+        // One array of the final size: no second copy of a large image in memory.
+        val out = ByteArray(item.size.toInt())
+        var at = 0
+        write(item, object : java.io.OutputStream() {
+            override fun write(b: Int) = throw UnsupportedOperationException()
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                if (at + len > out.size) throw IOException("The file size does not match")
+                System.arraycopy(b, off, out, at, len)
+                at += len
+            }
+        }) { }
+        return out
     }
 
     /**

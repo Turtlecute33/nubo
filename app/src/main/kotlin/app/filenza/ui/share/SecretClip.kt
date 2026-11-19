@@ -31,9 +31,10 @@ object SecretClip {
     private fun clear(context: Context) {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         val at = copiedAt
-        // Null in the background, or when the clipboard is empty.
+        // Null in the background (no read access) or when the clipboard is empty: then leave it, because it can
+        // hold something that the user copied later in another app.
         val current = clipboard.primaryClipDescription
-        if (current == null || at == null || current.timestamp == at) clipboard.clearPrimaryClip()
+        if (current != null && at != null && current.timestamp == at) clipboard.clearPrimaryClip()
         copiedAt = null
     }
 

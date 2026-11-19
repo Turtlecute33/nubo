@@ -88,10 +88,23 @@ class CameraJob : JobService() {
      * true when more media wait than one run takes.
      */
     private suspend fun uploadNew(a: FilenzaApp, settings: CameraUpload, folder: String): Boolean {
-        val mark = Mark(a)
-        val entries = withContext(Dispatchers.IO) { pending(a, settings, mark.read(folder)) }
+        val mark = withContext(Dispatchers.IO) { Mark(a, folder) }
+        val entries = withContext(Dispatchers.IO) { pending(a, settings, mark) }
         for (entry in entries) {
-            val src = UploadSource(entry.name, entry.mime, entry.modified, entry.taken) {
+            // An item that failed or ran out of job time MAX_TRIES times (a very large video) gives way, so
+            // that it does not block every later photo (review 8).
+            if (!withContext(Dispatchers.IO) { mark.attempt(entry.id) }) {
+                withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
+                continue
+            }
+            // A cloud file with this name: the same photo (same size) is skipped, another file gets a free
+            // name, because an upload with the same name replaces the cloud file (review 9, F-52).
+            val name = a.drive.ops.freeName(folder, entry.name, entry.size)
+            if (name == null) {
+                withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
+                continue
+            }
+            val src = UploadSource(name, entry.mime, entry.modified, entry.taken) {
                 try {
                     a.contentResolver.openInputStream(entry.uri) ?: throw Unreadable()
                 } catch (_: FileNotFoundException) {
@@ -100,14 +113,18 @@ class CameraJob : JobService() {
                     throw Unreadable()
                 }
             }
-            if (NameRules.problem(entry.name) == null) {
+            if (NameRules.problem(name) == null) {
                 try {
                     a.uploader.upload(folder, src) {}
                 } catch (_: Unreadable) {
                     // Deleted or moved since the query, or no longer readable: nothing to upload.
+                } catch (e: IOException) {
+                    // A lost network is not the item's fault: the try does not count.
+                    if (e !is app.filenza.api.ApiException) withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { mark.refund() }
+                    throw e
                 }
             }
-            withContext(Dispatchers.IO) { mark.write(entry.added, entry.id, folder) }
+            withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
         }
         return entries.size >= MAX_PER_RUN
     }
@@ -115,18 +132,32 @@ class CameraJob : JobService() {
     /** A media file that went away between the query and the upload. */
     private class Unreadable : IOException("The file is gone")
 
-    private class Entry(val uri: Uri, val id: Long, val added: Long, val name: String, val mime: String, val modified: Long, val taken: Long)
+    private class Entry(
+        val uri: Uri,
+        val id: Long,
+        val added: Long,
+        val name: String,
+        val mime: String,
+        val modified: Long,
+        val taken: Long,
+        val size: Long,
+    )
 
-    /** New media under DCIM, after the mark and after the time when the user turned camera upload on. */
-    private fun pending(a: FilenzaApp, s: CameraUpload, mark: Pair<Long, Long>): List<Entry> {
+    /**
+     * Media under DCIM that is not done, added after the time when the user turned camera upload on. The query
+     * looks back [Mark.WINDOW_S] before the newest done item: a long video is added as pending and appears
+     * later with its first time, after newer photos (review 14).
+     */
+    private fun pending(a: FilenzaApp, s: CameraUpload, mark: Mark): List<Entry> {
         val collections = buildList {
             add(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL))
             if (s.videos) add(MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL))
         }
-        val since = maxOf(s.since / 1000, mark.first)
+        val since = maxOf(s.since / 1000, mark.added - Mark.WINDOW_S)
         val cols = arrayOf(
             MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DISPLAY_NAME,
             MediaStore.MediaColumns.MIME_TYPE, MediaStore.MediaColumns.DATE_MODIFIED, MediaStore.MediaColumns.DATE_TAKEN,
+            MediaStore.MediaColumns.SIZE,
         )
         val where = "${MediaStore.MediaColumns.DATE_ADDED} >= ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE 'DCIM/%'"
         val out = ArrayList<Entry>()
@@ -135,11 +166,12 @@ class CameraJob : JobService() {
                 while (c.moveToNext()) {
                     val id = c.getLong(0)
                     val added = c.getLong(1)
-                    if (added < mark.first || added == mark.first && id <= mark.second) continue
+                    if (mark.isDone(id)) continue
                     val name = c.getString(2)?.substringAfterLast('/') ?: continue
                     out += Entry(
                         ContentUris.withAppendedId(collection, id), id, added, name,
                         c.getString(3) ?: FileType.mime(name), c.getLong(4) * 1000, if (c.isNull(5)) 0 else c.getLong(5),
+                        if (c.isNull(6)) -1 else c.getLong(6),
                     )
                 }
             }
@@ -148,25 +180,71 @@ class CameraJob : JobService() {
     }
 
     /**
-     * The last uploaded item: (DATE_ADDED in s, MediaStore ID), for one cloud folder. Another folder starts
-     * from no mark, so that a change of folder uploads to the new folder. Stored in no-backup storage.
+     * What is done, for one cloud folder (another folder starts empty): the newest DATE_ADDED (s) and the IDs
+     * done in the last [WINDOW_S] before it, and the tries of the item that runs now. No-backup storage.
      */
-    private class Mark(context: Context) {
+    private class Mark(context: Context, private val folder: String) {
         private val file = AtomicFile(File(context.noBackupFilesDir, MARK_FILE))
+        var added = 0L
+            private set
+        private val done = HashMap<Long, Long>()
+        private var tryId = -1L
+        private var tries = 0
 
-        fun read(folder: String): Pair<Long, Long> = runCatching {
-            JSONObject(file.readFully().decodeToString()).takeIf { it.optString("folder") == folder }?.let { it.getLong("added") to it.getLong("id") }
-        }.getOrNull() ?: (0L to 0L)
+        init {
+            runCatching {
+                val o = JSONObject(file.readFully().decodeToString())
+                if (o.optString("folder") == folder) {
+                    added = o.optLong("added")
+                    o.optJSONObject("done")?.let { d -> d.keys().forEach { k -> done[k.toLong()] = d.getLong(k) } }
+                    tryId = o.optLong("tryId", -1)
+                    tries = o.optInt("tries")
+                }
+            }
+        }
 
-        fun write(added: Long, id: Long, folder: String) {
+        fun isDone(id: Long) = id in done
+
+        /** Counts a try of [id]; false after [MAX_TRIES] tries. */
+        fun attempt(id: Long): Boolean {
+            if (tryId == id) tries++ else {
+                tryId = id
+                tries = 1
+            }
+            save()
+            return tries <= MAX_TRIES
+        }
+
+        fun refund() {
+            if (tries > 0) tries--
+            save()
+        }
+
+        fun finish(id: Long, at: Long) {
+            added = maxOf(added, at)
+            done[id] = at
+            done.entries.removeAll { it.value < added - WINDOW_S }
+            tryId = -1
+            tries = 0
+            save()
+        }
+
+        private fun save() {
+            val o = JSONObject().put("folder", folder).put("added", added).put("tryId", tryId).put("tries", tries)
+                .put("done", JSONObject().apply { done.forEach { (k, v) -> put(k.toString(), v) } })
             val out = file.startWrite()
             try {
-                out.write(JSONObject().put("added", added).put("id", id).put("folder", folder).toString().encodeToByteArray())
+                out.write(o.toString().encodeToByteArray())
                 file.finishWrite(out)
             } catch (e: Exception) {
                 file.failWrite(out)
                 throw e
             }
+        }
+
+        companion object {
+            const val WINDOW_S = 24 * 3600L
+            const val MAX_TRIES = 3
         }
     }
 
@@ -180,6 +258,15 @@ class CameraJob : JobService() {
         fun allowed(context: Context, s: CameraUpload): Boolean =
             context.checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED &&
                 (!s.videos || context.checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED)
+
+        /**
+         * Schedules only when no job is there: at a process start, a schedule() would stop the job that started
+         * the process (review 3).
+         */
+        fun ensure(context: Context, s: CameraUpload) {
+            if (s.enabled && s.folder != null && context.getSystemService(JobScheduler::class.java).getPendingJob(ID) != null) return
+            schedule(context, s)
+        }
 
         /** Schedules the next run for the next media change; cancels when camera upload is off. */
         fun schedule(context: Context, s: CameraUpload) {

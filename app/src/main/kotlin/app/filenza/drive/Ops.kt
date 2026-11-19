@@ -29,8 +29,8 @@ class Ops internal constructor(private val drive: Drive) {
         // A folder with this name was there already: the server gives its UUID and makes no new folder.
         val made = result.optString("uuid").ifEmpty { uuid }
         val item = Item(uuid = made, parent = parent, name = clean, folder = true, modified = now, created = now, uploaded = now)
-        if (made == uuid) drive.sharing.propagate(parent, listOf(item))
         drive.invalidate(Listing.Dir(parent))
+        if (made == uuid) drive.sharing.propagateAfter(parent, listOf(item))
         item
     }
 
@@ -38,11 +38,13 @@ class Ops internal constructor(private val drive: Drive) {
         val clean = NameRules.clean(name)
         if (clean == item.name) return@guard item
         val ring = drive.keys()
+        // Rows of "Shared by me" have no parent: read it, because the name check needs the folder.
+        val parent = item.parent.ifEmpty { drive.item(item.uuid, item.folder)?.parent ?: throw IOException("The item is not there any more") }
         val hashed = ring.hashName(clean)
         val renamed = item.copy(name = clean)
         drive.lock.write {
             // Only another item with the same name blocks; a change of letter case is a rename of the same item.
-            val clash = api.post(if (item.folder) "/v3/dir/exists" else "/v3/file/exists", JSONObject().put("nameHashed", hashed).put("parent", item.parent))
+            val clash = api.post(if (item.folder) "/v3/dir/exists" else "/v3/file/exists", JSONObject().put("nameHashed", hashed).put("parent", parent))
             if (clash.optBoolean("exists") && clash.optString("uuid") != item.uuid) throw IOException("An item with this name is in the folder")
             if (item.folder) {
                 api.post(
@@ -57,8 +59,8 @@ class Ops internal constructor(private val drive: Drive) {
                 )
             }
         }
-        drive.sharing.renamed(renamed)
-        drive.invalidate(Listing.Dir(item.parent), Listing.Recents, Listing.Favorites, Listing.Links, Listing.SharedOut)
+        drive.invalidate(Listing.Dir(parent), Listing.Recents, Listing.Favorites, Listing.Links, Listing.SharedOut)
+        drive.sharing.renamedAfter(renamed)
         renamed
     }
 
@@ -79,9 +81,28 @@ class Ops internal constructor(private val drive: Drive) {
                 moved += item.copy(parent = to)
             }
         }
-        if (moved.isNotEmpty()) drive.sharing.propagate(to, moved)
-        drive.invalidate(*(items.map { Listing.Dir(it.parent) } + Listing.Dir(to)).distinct().toTypedArray())
+        drive.invalidate(*(items.map { Listing.Dir(it.parent) } + Listing.Dir(to) + Listing.SharedOut).distinct().toTypedArray())
+        if (moved.isNotEmpty()) drive.sharing.propagateAfter(to, moved)
         skipped
+    }
+
+    /**
+     * A name for a new upload of [size] bytes into [parent]: [name] when it is free, null when a file with this
+     * name and size is there (the same file), else "name (n).ext" with the first free n.
+     */
+    suspend fun freeName(parent: String, name: String, size: Long): String? = drive.guard {
+        val ring = drive.keys()
+        suspend fun existing(n: String): String? =
+            api.post("/v3/file/exists", JSONObject().put("nameHashed", ring.hashName(n)).put("parent", parent))
+                .takeIf { it.optBoolean("exists") }?.optString("uuid")?.takeIf { it.isNotEmpty() && it != "null" }
+        val first = existing(name) ?: return@guard name
+        if (size >= 0 && drive.item(first, folder = false)?.size == size) return@guard null
+        val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
+        for (n in 1..MAX_COPIES) {
+            val candidate = name.substring(0, dot) + " ($n)" + name.substring(dot)
+            if (existing(candidate) == null) return@guard candidate
+        }
+        throw IOException("Too many files with this name")
     }
 
     suspend fun trash(items: List<Item>) = drive.guard {
@@ -99,7 +120,7 @@ class Ops internal constructor(private val drive: Drive) {
         // The answer has no parent: read each item again, so that shares and links of its folder get it (F-63).
         for (item in items) {
             val back = runCatching { drive.item(item.uuid, item.folder) }.getOrNull() ?: continue
-            runCatching { drive.sharing.propagate(back.parent, listOf(back)) }
+            drive.sharing.propagateAfter(back.parent, listOf(back))
         }
         drive.invalidate(null)
     }
@@ -129,6 +150,8 @@ class Ops internal constructor(private val drive: Drive) {
     }
 
     companion object {
+        private const val MAX_COPIES = 50
+
         /**
          * The key of the per-file name, size and MIME fields (research F-43): `003` with the key bytes for v3
          * files, `002` with the key text for older ones.

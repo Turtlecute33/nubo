@@ -24,6 +24,9 @@ import app.filenza.work.Notifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -45,26 +48,32 @@ class FilenzaApp : Application() {
     val account by lazy { Account(api, SessionStore(noBackupFilesDir, vault), ::wipe) }
     val offline by lazy { Offline(this, { account.session?.cacheKey }) }
     val content by lazy { Content(api, offline) }
-    val drive by lazy { Drive(api, account, offline, scope) }
+    val drive by lazy { Drive(api, account, offline, scope, messenger::show) }
     val uploader by lazy { Uploader(drive) }
     val links by lazy { PublicLinks(api) }
     val thumbs by lazy { Thumbs(this, content, { account.session?.cacheKey }) }
     val transfers by lazy { Transfers(this) }
     val notifier by lazy { Notifier(this) }
 
+    private val _ready = MutableStateFlow(false)
+
+    /** True after the settings and the session are read. The UI and the splash screen wait for it. */
+    val ready: StateFlow<Boolean> = _ready.asStateFlow()
+
     override fun onCreate() {
         if (BuildConfig.DEBUG) enableStrictMode()
         super.onCreate()
         prefs = Prefs(filesDir, scope)
+        // The Keystore, the session file and the HTTP objects start here, never on the main thread.
         scope.launch(Dispatchers.IO) {
             prefs.load()
             account.load()
             offline.load()
-        }
-        // Camera upload follows the session: it starts after a login and at each start with a saved session.
-        scope.launch {
+            _ready.value = true
+            // Camera upload follows the session. Only when no job waits: a schedule() would stop the job that
+            // started this process (review 3).
             account.state.map { it is AccountState.LoggedIn }.distinctUntilChanged().collect { inside ->
-                if (inside) CameraJob.schedule(this@FilenzaApp, prefs.value.camera)
+                if (inside) CameraJob.ensure(this@FilenzaApp, prefs.value.camera)
             }
         }
     }

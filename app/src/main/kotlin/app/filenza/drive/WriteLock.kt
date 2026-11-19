@@ -60,7 +60,8 @@ class WriteLock(private val api: Api, private val scope: CoroutineScope) {
         if (--holders > 0) return@withLock
         refresher?.cancel()
         refresher = null
-        scope.launch { runCatching { call("release") } }
+        // In the mutex, so that a next acquire cannot reach the server before this release (review 19).
+        runCatching { call("release") }
     }
 
     private suspend fun call(type: String): JSONObject =

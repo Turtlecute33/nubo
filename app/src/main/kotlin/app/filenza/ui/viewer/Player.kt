@@ -147,12 +147,17 @@ internal class Player(app: FilenzaApp, item: Item, video: Boolean) {
         if (!released) runCatching { mp?.setDisplay(holder) }
     }
 
+    /**
+     * Frees the player. MediaPlayer.release() can wait for a read that waits for the network, so it runs on
+     * its own thread, never on the main thread (an ANR on a slow link).
+     */
     fun release() {
         if (released) return
         released = true
         audio.abandonAudioFocusRequest(focus)
-        mp?.release()
+        val p = mp
         mp = null
         runCatching { source.close() }
+        if (p != null) Thread({ runCatching { p.release() } }, "player-release").start()
     }
 }

@@ -58,6 +58,7 @@ import app.filenza.ui.Icons
 import app.filenza.ui.components.EmptyState
 import app.filenza.ui.components.ItemRow
 import app.filenza.ui.components.LoadingBox
+import app.filenza.ui.components.PrivateTextInput
 import app.filenza.ui.drive.ItemActionsHost
 import app.filenza.ui.drive.rememberFolder
 import app.filenza.ui.drive.rememberItemActions
@@ -219,15 +220,18 @@ fun OpenLinkDialog(onDismiss: () -> Unit, onOpen: (Links.Parsed) -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Open a Filen link") },
         text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it.take(2048) },
-                label = { Text("Link") },
-                singleLine = true,
-                isError = text.isNotEmpty() && parsed == null,
-                supportingText = { if (text.isNotEmpty() && parsed == null) Text("This is not a Filen link with its key") },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // The link holds the key: the keyboard must not learn it.
+            PrivateTextInput {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.take(2048) },
+                    label = { Text("Link") },
+                    singleLine = true,
+                    isError = text.isNotEmpty() && parsed == null,
+                    supportingText = { if (text.isNotEmpty() && parsed == null) Text("This is not a Filen link with its key") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         },
         confirmButton = { TextButton(enabled = parsed != null, onClick = { onDismiss(); parsed?.let(onOpen) }) { Text("Open") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

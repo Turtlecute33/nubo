@@ -13,7 +13,6 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.filenza.data.AccountState
 import app.filenza.drive.Links
 import app.filenza.ui.AppRoot
 import app.filenza.ui.lock.AppLock
@@ -29,7 +28,8 @@ class MainActivity : ComponentActivity() {
         edgeToEdge(dark = false)
         super.onCreate(savedInstanceState)
         keepSplashUntilReady()
-        // A touch that goes through an overlay of another app (tapjacking) does nothing. DESIGN §7.
+        // No overlay of another app over any window of this app, and a touch through one does nothing. DESIGN §7.
+        window.setHideOverlayWindows(true)
         window.decorView.filterTouchesWhenObscured = true
         if (savedInstanceState == null) take(intent)
         setContent {
@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
         val content = findViewById<View>(android.R.id.content)
         content.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
-                if (app.account.state.value == AccountState.Loading) return false
+                if (!app.ready.value) return false
                 content.viewTreeObserver.removeOnPreDrawListener(this)
                 return true
             }

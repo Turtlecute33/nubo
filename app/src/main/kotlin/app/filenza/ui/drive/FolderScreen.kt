@@ -221,9 +221,9 @@ fun FolderScreen(listing: Listing, title: String, isRoot: Boolean = false) {
 /** The listing that a folder of [parent] opens, or null when folders here cannot open (the trash). */
 private fun child(parent: Listing, item: Item): Listing? = when (parent) {
     Listing.Trash -> null
-    Listing.SharedIn, is Listing.SharedDir -> Listing.SharedDir(item.uuid)
+    Listing.SharedIn, is Listing.SharedDir -> Listing.SharedDir(item.uuid, (item.source as? Source.SharedIn)?.owner.orEmpty())
     is Listing.LinkDir -> Listing.LinkDir(parent.link, item.uuid)
-    else -> if (item.source is Source.SharedIn) Listing.SharedDir(item.uuid) else Listing.Dir(item.uuid)
+    else -> (item.source as? Source.SharedIn)?.let { Listing.SharedDir(item.uuid, it.owner) } ?: Listing.Dir(item.uuid)
 }
 
 private fun count(items: List<Item>): String {

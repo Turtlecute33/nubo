@@ -40,6 +40,25 @@ class Sharing internal constructor(private val drive: Drive) {
 
     // ---- propagation (F-53) ----
 
+    /**
+     * [propagate] after a write that succeeded: a failure here does not make the write fail; the user gets a
+     * warning (review 17).
+     */
+    suspend fun propagateAfter(parent: String, items: List<Item>) = safely { propagate(parent, items) }
+
+    /** [renamed] after a rename that succeeded, with the same rule as [propagateAfter]. */
+    suspend fun renamedAfter(item: Item) = safely { renamed(item) }
+
+    private suspend fun safely(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            drive.warn("Saved. The shares and links of this folder did not get the change.")
+        }
+    }
+
     /** Adds [items] (and everything inside the folders among them) to the shares and links of [parent]. */
     suspend fun propagate(parent: String, items: List<Item>) = coroutineScope {
         val links = async { api.post("/v3/item/linked", JSONObject().put("uuid", parent)) }
@@ -197,10 +216,11 @@ class Sharing internal constructor(private val drive: Drive) {
     }
 
     private suspend fun shareTo(email: String, publicKey: String, items: List<Item>, root: String?) {
+        // RSA-OAEP-SHA512 with a 4096-bit key takes at most 382 bytes (F-27). Check all before the first call,
+        // so that a share never stops halfway (review 18).
+        if (items.any { it.metaJson().encodeToByteArray().size > 382 }) throw IOException("A name is too long to share")
         parallel(items) { item ->
             val meta = item.metaJson()
-            // RSA-OAEP-SHA512 with a 4096-bit key takes at most 382 bytes (F-27).
-            if (meta.encodeToByteArray().size > 382) throw IOException("A name is too long to share")
             api.post(
                 "/v3/item/share",
                 JSONObject().put("uuid", item.uuid).put("parent", if (item.uuid == root) "none" else item.parent).put("email", email)

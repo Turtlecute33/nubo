@@ -29,7 +29,7 @@ import java.util.Collections
  */
 class Thumbs(context: Context, private val content: Content, private val cacheKey: () -> DataKey?) {
     private val dir = File(context.cacheDir, "thumbs")
-    private val gate = Semaphore(3)
+    private val gate = Semaphore(2)
     private val failed = Collections.synchronizedSet(HashSet<String>())
     private val memory = object : LruCache<String, ImageBitmap>(MEMORY_BYTES) {
         override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
@@ -67,7 +67,17 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
         if (file.isFile) {
             runCatching { decode(ck.decryptChunk(file.readBytes())) }.getOrNull()?.let { return it.asImageBitmap() }
         }
-        val bitmap = runCatching { make(item) }.getOrNull()
+        // A network error or a cancel (the cell left the screen) can pass: only a file that does not decode
+        // is marked as failed for this process.
+        val bitmap = try {
+            make(item)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: java.io.IOException) {
+            return null
+        } catch (_: Exception) {
+            null
+        }
         if (bitmap == null) {
             failed += k
             return null
@@ -111,7 +121,7 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
     private companion object {
         const val SIZE = 320
         const val QUALITY = 70
-        const val MAX_IMAGE = 40L * 1000 * 1000
+        const val MAX_IMAGE = 25L * 1000 * 1000
         const val MEMORY_BYTES = 48 * 1024 * 1024
     }
 }

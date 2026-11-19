@@ -25,7 +25,9 @@ sealed interface Listing {
     data object Offline : Listing
 
     /** A folder inside an item that another user shared with me. Read only. */
-    data class SharedDir(val uuid: String) : Listing
+    data class SharedDir(val uuid: String, val owner: String = "") : Listing {
+        override fun toString() = "SharedDir($uuid)"
+    }
 
     /** A folder inside a public folder link. [link] holds the key: [toString] leaves it out. */
     data class LinkDir(val link: FolderLink, val uuid: String) : Listing {

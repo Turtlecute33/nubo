@@ -18,9 +18,14 @@ class ChunkReader(private val content: Content, val item: Item) {
 
     val size: Long get() = item.size
 
+    /** Set by [MediaDataSource.close] with no lock: a read that waits for the network must not block the closer. */
+    @Volatile
+    private var closed = false
+
     /** Copies up to [length] bytes from [position] into [out]; returns the count, or -1 at the end. */
     @Synchronized
     fun read(position: Long, out: ByteArray, offset: Int, length: Int): Int {
+        if (closed) throw java.io.IOException("Closed")
         if (position >= item.size) return -1
         var done = 0
         var pos = position
@@ -51,7 +56,9 @@ class ChunkReader(private val content: Content, val item: Item) {
 
         override fun getSize(): Long = item.size
 
-        override fun close() = synchronized(this@ChunkReader) { cache.clear() }
+        override fun close() {
+            closed = true
+        }
     }
 
     private companion object {

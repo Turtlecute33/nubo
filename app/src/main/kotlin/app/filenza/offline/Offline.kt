@@ -32,12 +32,14 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
     val uuids: StateFlow<Set<String>> = _uuids.asStateFlow()
 
     suspend fun items(): List<Item> = mutex.withLock {
-        load()
+        read()
         entries.values.toList()
     }
 
-    /** Reads the index once. Called before every use; cheap after the first. */
-    suspend fun load() = withContext(Dispatchers.IO) {
+    /** Reads the index once (at the app start). */
+    suspend fun load() = mutex.withLock { read() }
+
+    private suspend fun read() = withContext(Dispatchers.IO) {
         if (loaded) return@withContext
         val key = cacheKey() ?: return@withContext
         entries = runCatching {
@@ -80,14 +82,14 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
             throw e
         }
         mutex.withLock {
-            load()
+            read()
             entries[item.uuid] = item
             save()
         }
     }
 
     suspend fun remove(uuid: String) = mutex.withLock {
-        load()
+        read()
         entries.remove(uuid)
         save()
         withContext(Dispatchers.IO) { File(dir, uuid).deleteRecursively() }

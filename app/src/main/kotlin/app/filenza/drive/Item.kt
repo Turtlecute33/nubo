@@ -40,7 +40,7 @@ data class Item(
 
     /** The metadata JSON that shares and links get (research F-META-FILE). Never for folders' children lists. */
     fun metaJson(): String = if (folder) {
-        JSONObject().put("name", name).put("creation", created).toString()
+        JSONObject().put("name", name).apply { if (created > 0) put("creation", created) }.toString()
     } else {
         JSONObject()
             .put("name", name)
@@ -48,7 +48,8 @@ data class Item(
             .put("mime", mime)
             .put("key", key)
             .put("lastModified", modified)
-            .put("creation", created)
+            // No "creation" when it is not known: 0 would show as 1970 in the official apps.
+            .apply { if (created > 0) put("creation", created) }
             .apply { if (hash.isNotEmpty()) put("blake3", hash) }
             .toString()
     }
@@ -60,6 +61,15 @@ data class Item(
         .put("uuid", uuid).put("parent", parent).put("name", name).put("folder", folder).put("size", size).put("mime", mime)
         .put("modified", modified).put("created", created).put("uploaded", uploaded).put("favorite", favorite)
         .put("key", key).put("region", region).put("bucket", bucket).put("chunks", chunks).put("version", version).put("hash", hash)
+        .put(
+            "source",
+            when (val s = source) {
+                Source.Own -> "own"
+                is Source.SharedIn -> "in:" + s.owner
+                is Source.SharedOut -> "out:" + s.with
+                is Source.Link -> "link:" + s.linkUuid
+            },
+        )
 
     companion object {
         fun fromJson(o: JSONObject) = Item(
@@ -67,6 +77,14 @@ data class Item(
             size = o.optLong("size"), mime = o.optString("mime"), modified = o.optLong("modified"), created = o.optLong("created"),
             uploaded = o.optLong("uploaded"), favorite = o.optBoolean("favorite"), key = o.optString("key"), region = o.optString("region"),
             bucket = o.optString("bucket"), chunks = o.optInt("chunks"), version = o.optInt("version", 2), hash = o.optString("hash"),
+            source = o.optString("source", "own").let { s ->
+                when {
+                    s.startsWith("in:") -> Source.SharedIn(s.substring(3))
+                    s.startsWith("out:") -> Source.SharedOut(s.substring(4))
+                    s.startsWith("link:") -> Source.Link(s.substring(5))
+                    else -> Source.Own
+                }
+            },
         )
     }
 }

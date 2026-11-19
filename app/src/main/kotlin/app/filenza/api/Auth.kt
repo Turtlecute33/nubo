@@ -41,6 +41,8 @@ class Auth(private val api: Api) {
                 .put("password", derived.password)
                 .put("twoFactorCode", code?.filter(Char::isLetterOrDigit)?.ifEmpty { null } ?: NO_CODE)
                 .put("authVersion", version),
+            // Logins are rate limited (research F-24, F-87): never send one again by itself.
+            retry = false,
         )
         val key = login.getString("apiKey")
         val authed = api.withKey(key)

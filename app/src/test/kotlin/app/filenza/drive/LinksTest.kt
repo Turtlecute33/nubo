@@ -119,4 +119,13 @@ class LinksTest {
         assertEquals(512, salt.length)
         assertTrue(salt.all { it in '0'..'9' || it in 'a'..'f' })
     }
+
+    @Test
+    fun keyAfterAnEncodedHashInThePath() {
+        val key = "abcdefghijklmnopqrstuvwxyzABCDEF"
+        val hex = key.encodeToByteArray().joinToString("") { "%02x".format(it) }
+        val parsed = Links.parse("https://app.filen.io/f/0b0c58fa-ef63-4f4a-9d5b-1f0b8f4c0d11%23$hex")!!
+        kotlin.test.assertFalse(parsed.folder)
+        kotlin.test.assertEquals(key, parsed.key)
+    }
 }

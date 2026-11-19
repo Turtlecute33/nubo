@@ -21,7 +21,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,7 +62,7 @@ fun SearchScreen() {
     val nav = LocalNav.current
     val actions = rememberItemActions()
     val offline by app.offline.uuids.collectAsStateWithLifecycle()
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
     var tree by remember { mutableStateOf(app.drive.searchTree) }
     var error by remember { mutableStateOf<String?>(null) }
     var results by remember { mutableStateOf(emptyList<Item>()) }

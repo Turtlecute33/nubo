@@ -105,6 +105,9 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 - `android:memtagMode="sync"`, no WebView, no dynamic code loading, no native code.
 - Integrity: GCM checks each chunk. A full download also checks the size and, when the uploader wrote
   one, the BLAKE3 hash of the whole file (F-55). A streamed read (video, PDF) cannot check the hash.
+  The SHA-512 `hash` of the old TypeScript clients is not checked, like the Rust SDK: that SDK fed its
+  hasher inside a parallel upload loop, so the value can be in another chunk order and a check could
+  refuse good files.
 - The drive-write lock of the official clients guards every write (F-57).
 
 ## 8. Network and privacy

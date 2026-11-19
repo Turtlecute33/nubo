@@ -104,8 +104,9 @@ class ItemActions(private val app: FilenzaApp, private val nav: Navigator, priva
     fun leave(item: Item) = run { app.drive.sharing.leave(item) }
 
     /** Runs [block]; an error goes to the snackbar, and [done] with an optional undo after success. */
+    /** Writes run in the app scope: a screen that closes (a tap into a folder, a tab change) must not stop them halfway. */
     fun run(done: String? = null, undo: (suspend () -> Unit)? = null, block: suspend () -> Unit) {
-        scope.launch {
+        app.scope.launch {
             try {
                 block()
                 if (done != null) app.messenger.show(done, if (undo != null) "Undo" else null) { undo?.let { u -> run(block = u) } }
@@ -198,7 +199,8 @@ private fun ItemMenu(item: Item, listing: Listing, offline: Boolean, a: ItemActi
                 else -> {
                     if (!item.folder) Action(Icons.OpenInNew, "Open with", act { OpenWith.open(context, item) })
                     if (!item.folder) Action(Icons.Share, "Send a copy", act { OpenWith.share(context, listOf(item)) })
-                    Action(Icons.Download, "Download", act { a.download(listOf(item)) })
+                    // A folder downloads through the own-drive tree; shared and link folders open to download files.
+                    if (!item.folder || own) Action(Icons.Download, "Download", act { a.download(listOf(item)) })
                     if (!item.folder && loggedIn && listing != Listing.Offline) {
                         if (offline) Action(Icons.OfflinePinFill, "Remove offline copy", act { a.removeOffline(item) })
                         else Action(Icons.OfflinePin, "Keep offline", act { a.offline(listOf(item)) })
