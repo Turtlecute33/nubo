@@ -21,13 +21,12 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,12 +52,10 @@ import kotlinx.coroutines.launch
 fun MeScreen() {
     val app = LocalContext.current.app
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
     val settings by app.prefs.state.collectAsStateWithLifecycle()
     val email = app.account.session?.email.orEmpty()
-    var usage by remember { mutableStateOf<Usage?>(null) }
+    val usage = rememberUsage()
     var leaving by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { usage = runCatching { app.drive.usage() }.getOrNull() }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item(key = "head") {
@@ -70,7 +67,7 @@ fun MeScreen() {
                 Text(email, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.MiddleEllipsis, modifier = Modifier.padding(horizontal = 24.dp))
             }
         }
-        item(key = "usage") { UsageCard(usage) }
+        item(key = "usage") { UsageCard(usage.usage, usage.error) { usage.load(force = true) } }
         item(key = "h-places") { SectionHeader("Places") }
         item(key = "transfers") { Row(Icons.SwapVert, "Transfers", null) { nav.go(Route.Transfers) } }
         item(key = "offline") { Row(Icons.OfflinePin, "Offline files", null) { nav.go(Route.Folder(Listing.Offline, "Offline")) } }
@@ -104,8 +101,9 @@ fun MeScreen() {
     }
 }
 
+/** The storage use. A failed read shows its error and "Try again", not "Reading…" for ever (review 48). */
 @Composable
-private fun UsageCard(usage: Usage?) {
+private fun UsageCard(usage: Usage?, error: String?, onRetry: () -> Unit) {
     Card(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -114,13 +112,21 @@ private fun UsageCard(usage: Usage?) {
             Text("Storage", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                if (usage == null) "Reading…" else "${Format.size(usage.used)} of ${Format.size(usage.max)} used" + if (usage.premium) " · Pro" else "",
+                when {
+                    usage != null -> "${Format.size(usage.used)} of ${Format.size(usage.max)} used" + if (usage.premium) " · Pro" else ""
+                    error != null -> error
+                    else -> "Reading…"
+                },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (usage == null && error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(14.dp))
-            val fraction = if (usage == null || usage.max <= 0) 0f else (usage.used.toFloat() / usage.max).coerceIn(0f, 1f)
-            LinearWavyProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+            if (usage == null && error != null) {
+                TextButton(onClick = onRetry, modifier = Modifier.padding(top = 4.dp)) { Text("Try again") }
+            } else {
+                Spacer(Modifier.height(14.dp))
+                val fraction = if (usage == null || usage.max <= 0) 0f else (usage.used.toFloat() / usage.max).coerceIn(0f, 1f)
+                LinearWavyProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+            }
         }
     }
 }

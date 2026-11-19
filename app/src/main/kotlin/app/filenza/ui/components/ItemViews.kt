@@ -211,7 +211,9 @@ fun ItemTile(
     onLongClick: (() -> Unit)? = null,
     onMore: (() -> Unit)? = null,
 ) {
-    val scale by animateFloatAsState(if (selected) 0.92f else 1f, label = "tileScale")
+    val motion = MaterialTheme.motionScheme
+    val spec = remember(motion) { motion.fastSpatialSpec<Float>() } // review 102
+    val scale by animateFloatAsState(if (selected) 0.92f else 1f, spec, label = "tileScale")
     Surface(
         shape = MaterialTheme.shapes.large,
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,

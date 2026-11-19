@@ -181,7 +181,20 @@ fun LoginScreen() {
                     if (busy) LoadingIndicator(Modifier.size(28.dp), color = MaterialTheme.colorScheme.onPrimary) else Text("Log in")
                 }
                 Spacer(Modifier.height(12.dp))
-                TextButton(onClick = { openLink(context, "https://filen.io") }) { Text("No account? Create one at filen.io") }
+                if (needCode) {
+                    // A way back from the code step to the email and password (review 93).
+                    TextButton(
+                        onClick = {
+                            needCode = false
+                            code = ""
+                            password = ""
+                            error = null
+                        },
+                        enabled = !busy,
+                    ) { Text("Use another account") }
+                } else {
+                    TextButton(onClick = { openLink(context, "https://filen.io") }) { Text("No account? Create one at filen.io") }
+                }
             }
         }
     }

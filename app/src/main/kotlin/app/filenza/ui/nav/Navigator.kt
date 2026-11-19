@@ -37,10 +37,14 @@ class Navigator : ViewModel() {
 
     val current: Route get() = backStack.last()
 
-    /** Opens [route] in the current tab. A route that is on top already does not open twice. */
+    /**
+     * Opens [route] in the current tab. A route that is on top already does not open twice, and a viewer does
+     * not open over a viewer: the second tap of a double tap comes while the first viewer opens (review 89).
+     */
     fun go(route: Route) {
         val stack = stacks.getValue(tab)
-        if (stack.last() != route) stack += route
+        val top = stack.last()
+        if (top != route && !(route is Route.Viewer && top is Route.Viewer)) stack += route
     }
 
     /** Opens [route] above the root of [tab]. */

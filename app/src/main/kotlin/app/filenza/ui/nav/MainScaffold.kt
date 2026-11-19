@@ -17,7 +17,13 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,6 +55,8 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
@@ -56,7 +64,9 @@ import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
 import app.filenza.app
 import app.filenza.ui.Icons
+import app.filenza.ui.transfers.TransferNotices
 import app.filenza.util.Format
+import kotlinx.coroutines.flow.first
 
 private class TabInfo(val tab: Tab, val label: String, val icon: ImageVector, val selected: ImageVector)
 
@@ -75,24 +85,34 @@ private val tabs = listOf(
 fun MainScaffold(nav: Navigator) {
     val app = LocalContext.current.app
     val haptics = LocalHapticFeedback.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val snackbar = remember { SnackbarHostState() }
     val holder = rememberSaveableStateHolder()
     val full = nav.current is Route.FullScreen
 
     LaunchedEffect(Unit) {
         app.messenger.messages.collect { m ->
-            val result = snackbar.showSnackbar(m.text, m.action, withDismissAction = m.action == null, duration = SnackbarDuration.Short)
+            // A message waits while the app is in the background, so that it does not time out unseen. A message
+            // with an action (Undo) stays longer (review 85).
+            lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.STARTED) }
+            val duration = if (m.action != null) SnackbarDuration.Long else SnackbarDuration.Short
+            val result = snackbar.showSnackbar(m.text, m.action, withDismissAction = m.action == null, duration = duration)
             if (result == SnackbarResult.ActionPerformed) m.onAction?.invoke()
         }
     }
+    TransferNotices(nav)
 
     // Back on the root of another tab goes to Home; on Home's root the system closes the app.
     BackHandler(enabled = nav.backStack.size == 1 && nav.tab != Tab.HOME) { nav.select(Tab.HOME) }
 
+    val motion = MaterialTheme.motionScheme
+    val tabFade = remember(motion) { motion.defaultEffectsSpec<Float>() } // review 102
     Box(Modifier.fillMaxSize()) {
         androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
-            Box(Modifier.weight(1f)) {
-                Crossfade(nav.tab, label = "tab") { tab ->
+            // The tab bar takes the navigation bar inset: the screens above it must not add it again, or their
+            // add button floats too high (review 86).
+            Box(Modifier.weight(1f).then(if (full) Modifier else Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)))) {
+                Crossfade(nav.tab, animationSpec = tabFade, label = "tab") { tab ->
                     holder.SaveableStateProvider(tab.name) { TabStack(nav, tab) }
                 }
                 TransferPill(
@@ -100,7 +120,8 @@ fun MainScaffold(nav: Navigator) {
                     onClick = { nav.go(Route.Transfers) },
                     modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
                 )
-                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
+                // Above the navigation bar in the full-screen viewer; above the tab bar the inset is consumed (review 85).
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 8.dp))
             }
             AnimatedVisibility(!full, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
                 NavigationBar {
