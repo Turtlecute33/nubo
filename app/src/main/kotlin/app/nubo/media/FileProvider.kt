@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Gives decrypted files to other apps ("Open with", "Send a copy"). The provider is NOT exported: an app can
- * read only a URI that nubo granted to it in an intent. Each URI holds a random 128-bit token, kept only in
+ * read only a URI that Nubo granted to it in an intent. Each URI holds a random 128-bit token, kept only in
  * memory for [LIFETIME_MS] (and never after the process ends). The data streams through a proxy file
  * descriptor ([ProxyFd]): no plain copy goes to the disk. DESIGN §7.
  */

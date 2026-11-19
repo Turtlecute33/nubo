@@ -85,7 +85,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- "Open with" and "Send a copy": NOT exported. Another app reads only a URI that nubo granted to it
+        <!-- "Open with" and "Send a copy": NOT exported. Another app reads only a URI that Nubo granted to it
              in an intent; the data streams from a proxy file descriptor, with no plain copy on the disk. -->
         <provider
             android:name=".media.FileProvider"

@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,6 +54,7 @@ import app.nubo.api.ApiException
 import app.nubo.app
 import app.nubo.ui.Icons
 import app.nubo.ui.components.PrivateTextInput
+import app.nubo.ui.components.Toggle
 import app.nubo.ui.components.openLink
 import app.nubo.ui.components.userText
 import kotlinx.coroutines.CancellationException
@@ -61,6 +63,7 @@ import kotlinx.coroutines.launch
 /**
  * Email and password; a code field appears when the account has two-factor login. The password stays in
  * this screen's memory only (not saved across process death) and goes away after the login. DESIGN §7.
+ * The link to make an account uses the referral of the developer while its switch is on. DESIGN §8.
  */
 @Composable
 fun LoginScreen() {
@@ -75,6 +78,7 @@ fun LoginScreen() {
     var shown by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var referral by rememberSaveable { mutableStateOf(true) }
     val ready = email.contains('@') && password.isNotEmpty() && (!needCode || code.length >= 6) && !busy
 
     fun submit() {
@@ -115,7 +119,7 @@ fun LoginScreen() {
                     Icon(Icons.Cloud, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
                 Spacer(Modifier.height(20.dp))
-                Text("nubo", style = MaterialTheme.typography.headlineLarge)
+                Text("Nubo", style = MaterialTheme.typography.headlineLarge)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Log in with your Filen account. Your password and your files are decrypted only on this phone.",
@@ -193,9 +197,23 @@ fun LoginScreen() {
                         enabled = !busy,
                     ) { Text("Use another account") }
                 } else {
-                    TextButton(onClick = { openLink(context, "https://filen.io") }) { Text("No account? Create one at filen.io") }
+                    TextButton(onClick = { openLink(context, if (referral) REFERRAL_URL else SIGNUP_URL) }) {
+                        Text("No account? Create one at filen.io")
+                    }
+                    Toggle(
+                        Icons.PersonAdd,
+                        "Use the referral of the Nubo developer",
+                        "You and the developer can each get 10 GB more free storage. Filen then knows who invited you.",
+                        referral,
+                    ) { referral = it }
                 }
             }
         }
     }
 }
+
+/** The Filen sign-up page, with no referral. */
+private const val SIGNUP_URL = "https://filen.io"
+
+/** The Filen referral link of the Nubo developer (owner decision 2026-11-19). DESIGN §8. */
+private const val REFERRAL_URL = "https://filen.io/r/617af529fd2886d3d5be587d20f9184d"

@@ -14,11 +14,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -26,11 +24,9 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -56,6 +52,7 @@ import app.nubo.data.CameraUpload
 import app.nubo.ui.Icons
 import app.nubo.ui.components.IconAction
 import app.nubo.ui.components.SectionHeader
+import app.nubo.ui.components.Toggle
 import app.nubo.ui.components.userText
 import app.nubo.ui.drive.FolderPicker
 import app.nubo.ui.nav.LocalNav
@@ -179,7 +176,7 @@ fun CameraSettingsScreen() {
                     Column(Modifier.padding(16.dp)) {
                         Text("Camera upload is paused", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
-                        Text("nubo has no access to the photos on this phone.", style = MaterialTheme.typography.bodyMedium)
+                        Text("Nubo has no access to the photos on this phone.", style = MaterialTheme.typography.bodyMedium)
                         Spacer(Modifier.height(12.dp))
                         FilledTonalButton(onClick = { request(Waiting.NONE, cam.videos) }) { Text("Allow access") }
                     }
@@ -221,7 +218,7 @@ fun CameraSettingsScreen() {
                 Text(
                     "Photos and videos from the camera (the DCIM folder) upload in the background, on the network that you " +
                         "allow, encrypted on this phone. Android removes the GPS position from the uploaded files, because " +
-                        "nubo does not ask for access to the location of your media.",
+                        "Nubo does not ask for access to the location of your media.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
@@ -313,27 +310,6 @@ private fun Choice(title: String, text: String, selected: Boolean, onClick: () -
         leadingContent = { RadioButton(selected = selected, onClick = null) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
-    ) { Text(title) }
-}
-
-@Composable
-private fun Toggle(
-    icon: ImageVector,
-    title: String,
-    text: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    busy: Boolean = false,
-    onChange: (Boolean) -> Unit,
-) {
-    ListItem(
-        leadingContent = { Icon(icon, null) },
-        supportingContent = { Text(text) },
-        trailingContent = {
-            if (busy) LoadingIndicator(Modifier.size(32.dp)) else Switch(checked = checked, onCheckedChange = null, enabled = enabled)
-        },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
     ) { Text(title) }
 }
 

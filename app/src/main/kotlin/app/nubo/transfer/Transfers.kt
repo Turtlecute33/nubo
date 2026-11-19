@@ -60,7 +60,7 @@ data class Summary(val active: Int, val uploads: Int, val done: Long, val size: 
 /**
  * The queue of uploads, downloads and offline copies, [PARALLEL] files at a time. Tasks live in memory: a
  * killed process forgets them. [TransferJob] keeps the process running while the queue is not empty.
- * Downloads go to Download/nubo through MediaStore: no storage permission. DESIGN §6.
+ * Downloads go to Download/Nubo through MediaStore: no storage permission. DESIGN §6.
  */
 class Transfers(private val app: NuboApp) {
     private val next = AtomicLong(1)
@@ -137,7 +137,7 @@ class Transfers(private val app: NuboApp) {
             onDone?.invoke(item)
         }
 
-    /** Saves files (and the files inside folders) to Download/nubo, with the folder structure. */
+    /** Saves files (and the files inside folders) to Download/Nubo, with the folder structure. */
     fun download(items: List<Item>) {
         for (item in items) {
             if (!item.folder) {
@@ -200,7 +200,7 @@ class Transfers(private val app: NuboApp) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, item.name)
                 put(MediaStore.MediaColumns.MIME_TYPE, item.mime.ifEmpty { FileType.mime(item.name) })
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/nubo" + if (folder.isEmpty()) "" else "/$folder")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/Nubo" + if (folder.isEmpty()) "" else "/$folder")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             sweep.await()

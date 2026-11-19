@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.sp
 import app.nubo.data.Settings
 import app.nubo.data.ThemeMode
 
-/** nubo blue, used when dynamic colour is off. */
+/** Nubo blue, used when dynamic colour is off. */
 private val LightBrand = lightColorScheme(
     primary = Color(0xFF2F5BC9), onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFDBE1FF), onPrimaryContainer = Color(0xFF00174B),
@@ -129,7 +129,7 @@ fun ComponentActivity.edgeToEdge(dark: Boolean) = enableEdgeToEdge(
     navigationBarStyle = SystemBarStyle.auto(LightScrim, DarkScrim) { dark },
 )
 
-/** Wallpaper colours by default, else nubo blue; light, dark or pure black; Material 3 Expressive motion. */
+/** Wallpaper colours by default, else Nubo blue; light, dark or pure black; Material 3 Expressive motion. */
 @Composable
 fun NuboTheme(settings: Settings, content: @Composable () -> Unit) {
     val dark = isDark(settings)

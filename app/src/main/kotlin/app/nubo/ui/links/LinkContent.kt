@@ -126,7 +126,7 @@ internal fun FileCard(item: Item, onOpen: () -> Unit) {
                 when (mine.state) {
                     Transfer.State.QUEUED -> "Waiting"
                     Transfer.State.RUNNING -> "${Format.size(mine.done)} of ${Format.size(mine.size)}"
-                    Transfer.State.DONE -> "Saved to Download/nubo"
+                    Transfer.State.DONE -> "Saved to Download/Nubo"
                     Transfer.State.FAILED -> mine.error ?: "The download failed"
                     Transfer.State.CANCELED -> "Cancelled"
                 },
@@ -185,7 +185,7 @@ internal fun LinkFolder(link: FolderLink, uuid: String, onFolder: (Item) -> Unit
                     MenuRow(Icons.Download, "Download") {
                         menu = null
                         app.transfers.download(listOf(item))
-                        app.messenger.show("Saving to Download/nubo")
+                        app.messenger.show("Saving to Download/Nubo")
                     }
                 }
             }

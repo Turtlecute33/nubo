@@ -91,7 +91,7 @@ fun MeScreen() {
     if (leaving) {
         ConfirmDialog(
             title = "Log out?",
-            text = "nubo deletes the session, the offline files, the thumbnails and the queued transfers from this phone. Your files stay in your Filen drive.",
+            text = "Nubo deletes the session, the offline files, the thumbnails and the queued transfers from this phone. Your files stay in your Filen drive.",
             confirm = "Log out",
             destructive = true,
             // The app scope: this screen goes away during the logout, and the cleanup must finish.

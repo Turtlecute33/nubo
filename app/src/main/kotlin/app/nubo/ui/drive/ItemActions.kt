@@ -82,7 +82,7 @@ class ItemActions(private val app: NuboApp, private val nav: Navigator, private 
 
     fun download(items: List<Item>) {
         app.transfers.download(items)
-        app.messenger.show(if (items.size == 1) "Saving to Download/nubo" else "Saving ${items.size} items to Download/nubo")
+        app.messenger.show(if (items.size == 1) "Saving to Download/Nubo" else "Saving ${items.size} items to Download/Nubo")
     }
 
     fun offline(items: List<Item>) = app.transfers.keepOffline(items)

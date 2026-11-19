@@ -99,7 +99,7 @@ fun ViewerScreen(session: Long, index: Int, onClose: (() -> Unit)? = null) {
                     FileType.AUDIO -> MediaPage(item, video = false, current = current, chrome = chrome, onTap = toggle)
                     FileType.PDF -> PdfPage(item, current, top, toggle) { if (current) zoomed = it }
                     FileType.TEXT, FileType.CODE -> TextPage(item, mono = item.type == FileType.CODE, current = current, cache = opened.cache, top = top)
-                    else -> PageMessage(item, "nubo cannot show this type of file.", null)
+                    else -> PageMessage(item, "Nubo cannot show this type of file.", null)
                 }
             }
             AnimatedVisibility(
@@ -132,7 +132,7 @@ private fun TopBar(item: Item, counter: String, onBack: () -> Unit, modifier: Mo
             }
             Action(Icons.Download, "Download") {
                 app.transfers.download(listOf(item))
-                app.messenger.show("Saving to Download/nubo")
+                app.messenger.show("Saving to Download/Nubo")
             }
             Action(Icons.OpenInNew, "Open with") { OpenWith.open(context, item) }
             Action(Icons.Share, "Send a copy") { OpenWith.share(context, listOf(item)) }

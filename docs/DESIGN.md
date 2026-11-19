@@ -1,12 +1,14 @@
-# nubo design
+# Nubo design
 
-This file is the single source of truth for nubo. Code comments refer to its sections (`DESIGN §n`).
+This file is the single source of truth for Nubo. Code comments refer to its sections (`DESIGN §n`).
 Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 
 ## 1. Fixed decisions
 
-- nubo is an unofficial Android client for [Filen](https://filen.io) cloud storage.
-- Name: nubo (Esperanto for "cloud"), written in lower case. Package and app ID `app.nubo`. Licence GPL-3.0.
+- Nubo is an unofficial Android client for [Filen](https://filen.io) cloud storage.
+- Name: Nubo (Esperanto for "cloud"), with a capital N in text (owner, 2026-11-19). The icon shows it in lower case.
+  Identifiers stay `nubo`: package and app ID `app.nubo`, the Keystore alias, the user agent, the repository.
+  Licence GPL-3.0.
 - Release key: `~/.config/nubo/release.jks`, alias `nubo`, passwords in the Keychain items `nubo-android-keystore`
   and `nubo-android-key` (`scripts/make-release-key.sh`). The certificate stays the same for all releases.
 - v1 scope (owner, 2026-11-19): login with two-factor code; browse in a list or a grid with a sort for
@@ -85,7 +87,7 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 - The cache key is 32 random bytes made at login. It lives only in the encrypted session.
 - No plain file content goes to the disk. Viewers read chunks into memory. "Open with" and "Send a
   copy" give other apps a proxy file descriptor that decrypts on read (§7).
-- Downloads go to `Download/nubo` through MediaStore: no storage permission.
+- Downloads go to `Download/Nubo` through MediaStore: no storage permission.
 - Logout deletes the session, the offline files, the thumbnails, the cache, the camera mark and the
   queued transfers.
 - Backups and device transfers exclude all data (`data_extraction_rules.xml`, `allowBackup=false`).
@@ -127,6 +129,11 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
   setting; review 73). No pinning: Filen publishes no pins (F-16).
 - User agent `nubo`, the same on every device. No device ID, install ID or push token (F-92, F-93).
 - Downloads carry no API key (F-30). Public links open with no account and no key.
+- Referral (owner decision 2026-11-19): the login screen has a switch, on by default, "Use the referral of
+  the Nubo developer". With it on, "Create one at filen.io" opens the developer's referral link
+  (`filen.io/r/…`); with it off, `filen.io`. Filen gives 10 GB more to the new account and to the developer
+  (at most three times for the developer), but not to accounts that it does not find eligible (for example,
+  made through a VPN). The browser opens the link: the app does not connect to it. Login never sends a referral.
 - Errors: the user sees short text from one place (`userText`); server text is never shown.
 - Retries: only in `Api` (review 45). Network errors, 5xx and 429 get two more tries with a short wait; API
   errors, a too large answer and the login do not.

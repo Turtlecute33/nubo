@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/logo.svg" width="96" alt="nubo logo">
+<img src="docs/logo.svg" width="96" alt="Nubo logo">
 
-# nubo
+# Nubo
 
 **Open-source client for the Filen cloud on Android.**<br>
 End-to-end encrypted, fast and private. No trackers, no Google Play Services, no native code.
@@ -12,17 +12,17 @@ End-to-end encrypted, fast and private. No trackers, no Google Play Services, no
 [![Release](https://img.shields.io/github/v/release/Turtlecute33/nubo?include_prereleases&color=2F5BC9)](https://github.com/Turtlecute33/nubo/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue)](LICENSE)
 
-<img src="docs/banner.png" width="100%" alt="nubo for Android: the drive list, the home screen with recent files, and the file menu in dark mode">
+<img src="docs/banner.png" width="100%" alt="Nubo for Android: the drive list, the home screen with recent files, and the file menu in dark mode">
 
 </div>
 
 ## About
 
-nubo is an unofficial app for [Filen](https://filen.io), the end-to-end encrypted cloud storage. It
+Nubo is an unofficial app for [Filen](https://filen.io), the end-to-end encrypted cloud storage. It
 shows your drive, your photos and your shares, and it moves files in both directions. Your files
 are encrypted and decrypted on the phone: Filen gets only encrypted data.
 
-nubo is new code in Kotlin. The Filen protocol and its encryption follow the
+Nubo is new code in Kotlin. The Filen protocol and its encryption follow the
 open Filen SDKs and their published test values. The interface is Jetpack Compose with Material 3
 Expressive. The app has no native code, no WebView and no dynamic code loading, and it is made to
 run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
@@ -41,7 +41,7 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
   links), read-only shares with other Filen users, and public Filen links that open in the app with
   no account.
 - **App lock** with your fingerprint or your screen lock, and **screenshot blocking**.
-- **Material 3 Expressive**: your wallpaper colours or the nubo blue, light, dark and pure black.
+- **Material 3 Expressive**: your wallpaper colours or the Nubo blue, light, dark and pure black.
 
 ## Security
 
@@ -71,12 +71,12 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
 ## Privacy
 
 - No ads, no analytics, no crash reports, no Google Play Services, no third-party SDKs.
-- nubo connects only to Filen:
+- Nubo connects only to Filen:
   - `gateway.filen.io`: the API.
   - `ingest.filen.io`: uploads.
   - `egest.filen.io`: downloads. Downloads and public links carry no account key.
 - The user agent is `nubo` on every phone. No device ID, install ID or push token.
-- Search runs on the phone. nubo does not use Filen's server-side search index, which would upload
+- Search runs on the phone. Nubo does not use Filen's server-side search index, which would upload
   hashes of parts of your file names.
 - Camera upload does not ask for access to the location of your media, so Android removes the GPS
   position from the uploaded photos.
@@ -84,6 +84,11 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
   phone that has a screen lock, and do not go to a watch or a car.
 - Settings › Support has links to donate and to the developer on X and Nostr. They open in your
   browser. The app itself does not connect to these hosts.
+- Referral: on the login screen, a switch (on by default) adds the Filen referral of the Nubo
+  developer to the "Create one at filen.io" link. Filen can then give 10 GB more free storage to
+  your new account and to the developer, and it knows that the developer invited you. Turn the
+  switch off, and the link opens `filen.io` with no referral. Login with an existing account never
+  sends one.
 - What Filen can still see, with any client: your email address, your IP address and the times of
   use, the shape of your folder tree, the file sizes, who you share with, and which items have
   links. On accounts of auth version 1 and 2, Filen also gets an unsalted hash of each lower-case
@@ -91,7 +96,7 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
 
 ## Download
 
-Get the APK from [Releases](https://github.com/Turtlecute33/nubo/releases). nubo is new software.
+Get the APK from [Releases](https://github.com/Turtlecute33/nubo/releases). Nubo is new software.
 Report problems in [Issues](https://github.com/Turtlecute33/nubo/issues).
 
 Before you install, check the signing certificate. Its SHA-256 fingerprint is:
@@ -103,7 +108,7 @@ Before you install, check the signing certificate. Its SHA-256 fingerprint is:
 Compare it with the output of `apksigner verify --print-certs <file>.apk`, or use AppVerifier.
 Do not install an APK with a different certificate.
 
-nubo needs Android 15 or later. It has no native code, so the same APK runs on all phones.
+Nubo needs Android 15 or later. It has no native code, so the same APK runs on all phones.
 
 ## Build
 
@@ -153,10 +158,10 @@ The design notes are in [docs/DESIGN.md](docs/DESIGN.md), the protocol research 
 | Photos and videos | Camera upload only, asked when you turn it on. |
 | Receive boot completed | Camera upload starts again after a reboot. |
 | Biometric | The optional app lock. |
-| Hide overlay windows | Other apps cannot draw over nubo. |
+| Hide overlay windows | Other apps cannot draw over Nubo. |
 
 No storage permission: uploads use the system file and photo pickers, and downloads go to
-`Download/nubo` through MediaStore.
+`Download/Nubo` through MediaStore.
 
 </details>
 
@@ -203,5 +208,5 @@ restore, search, offline files, and all viewers. The results are in
 
 GPL-3.0. Bouncy Castle (MIT) gives Argon2id and BLAKE3. Material Symbols are Apache-2.0.
 
-<sub>nubo is not affiliated with, or endorsed by, Filen Cloud Dienste UG. "Filen" is their
+<sub>Nubo is not affiliated with, or endorsed by, Filen Cloud Dienste UG. "Filen" is their
 trademark.</sub>

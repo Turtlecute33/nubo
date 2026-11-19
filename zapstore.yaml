@@ -2,11 +2,11 @@
 repository: https://github.com/Turtlecute33/nubo
 summary: Open-source client for the Filen cloud. End-to-end encrypted, fast and private.
 description: |
-  nubo is an unofficial app for Filen, the end-to-end encrypted cloud storage. It shows your drive,
+  Nubo is an unofficial app for Filen, the end-to-end encrypted cloud storage. It shows your drive,
   your photos and your shares, and it moves files in both directions. Your files are encrypted and
   decrypted on the phone: Filen gets only encrypted data.
 
-  nubo has no native code, no WebView and no dynamic code loading, and it is made to run on
+  Nubo has no native code, no WebView and no dynamic code loading, and it is made to run on
   GrapheneOS. No trackers, no Google Play Services.
 
   - **Drive**: list or grid, a sort for each folder, search on the phone, upload, download, rename,
@@ -17,7 +17,7 @@ description: |
   - **Sharing**: public links and read-only shares with other Filen users.
   - **App lock** and **screenshot blocking**.
 
-  nubo is not affiliated with Filen Cloud Dienste UG.
+  Nubo is not affiliated with Filen Cloud Dienste UG.
 license: GPL-3.0-only
 tags: [cloud-storage, filen, privacy, grapheneos]
 icon: ./docs/icon.png

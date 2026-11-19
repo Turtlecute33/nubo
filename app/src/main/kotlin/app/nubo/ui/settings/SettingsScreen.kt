@@ -2,7 +2,6 @@ package app.nubo.ui.settings
 
 import android.app.KeyguardManager
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,7 +13,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -29,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,6 +36,7 @@ import app.nubo.data.ThemeMode
 import app.nubo.ui.Icons
 import app.nubo.ui.components.IconAction
 import app.nubo.ui.components.SectionHeader
+import app.nubo.ui.components.Toggle
 import app.nubo.ui.components.openLink
 import app.nubo.ui.nav.LocalNav
 import app.nubo.util.Format
@@ -125,7 +123,7 @@ fun SettingsScreen() {
             item(key = "nostr") { Row(Icons.Hub, "Nostr", "turtlecute@primal.net") { openLink(context, "https://primal.net/turtlecute") } }
             item(key = "about") {
                 Text(
-                    "nubo ${BuildConfig.VERSION_NAME} · GPL-3.0. Not affiliated with Filen. Bouncy Castle (MIT), Material Symbols (Apache-2.0).",
+                    "Nubo ${BuildConfig.VERSION_NAME} · GPL-3.0. Not affiliated with Filen. Bouncy Castle (MIT), Material Symbols (Apache-2.0).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
@@ -135,20 +133,9 @@ fun SettingsScreen() {
     }
 }
 
-/** Settings › Support. The browser opens the links; nubo does not connect to these hosts. */
+/** Settings › Support. The browser opens the links; Nubo does not connect to these hosts. */
 private const val DONATE_URL =
     "https://btcpay.priorato.org/api/v1/invoices?storeId=31ntjiLSTmSSuTC6FrR81z6AAku46bLF2FKAL3MFHtV5&orderId=Donation&checkoutDesc=Donation&currency=USD"
-
-@Composable
-private fun Toggle(icon: ImageVector, title: String, text: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
-    ListItem(
-        leadingContent = { Icon(icon, null) },
-        supportingContent = { Text(text) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
-    ) { Text(title) }
-}
 
 @Composable
 private fun Row(icon: ImageVector, title: String, text: String, onClick: (() -> Unit)?) {

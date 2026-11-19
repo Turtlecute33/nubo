@@ -45,7 +45,7 @@ fun LockScreen(onUnlocked: () -> Unit, modifier: Modifier = Modifier) {
     Surface(modifier.fillMaxSize()) {
         EmptyState(
             icon = Icons.Lock,
-            title = "nubo is locked",
+            title = "Nubo is locked",
             modifier = Modifier.fillMaxSize().safeDrawingPadding(),
             message = if (prompt.available) prompt.error else "Set a screen lock on this phone to unlock the app.",
             actionLabel = if (prompt.available) "Unlock" else "Set screen lock",
@@ -83,7 +83,7 @@ private class Prompt(private val activity: Activity, private val onSuccess: () -
         val signal = CancellationSignal().also { pending = it }
         error = null
         BiometricPrompt.Builder(activity)
-            .setTitle("Unlock nubo")
+            .setTitle("Unlock Nubo")
             .setAllowedAuthenticators(AUTHENTICATORS)
             .setConfirmationRequired(false)
             .build()
