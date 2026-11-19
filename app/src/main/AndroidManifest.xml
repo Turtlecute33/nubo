@@ -70,6 +70,14 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
+        <!-- "Open with" and "Send a copy": NOT exported. Another app reads only a URI that Filenza granted to it
+             in an intent; the data streams from a proxy file descriptor, with no plain copy on the disk. -->
+        <provider
+            android:name=".media.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <!-- EmojiCompat would look for a downloadable emoji font (a Play Services font provider).
              Use the platform emoji font. -->
         <provider
