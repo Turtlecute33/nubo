@@ -68,8 +68,11 @@ class FilenzaApp : Application() {
         scope.launch(Dispatchers.IO) {
             prefs.load()
             account.load()
-            offline.load()
+            // A logout that a process death stopped: finish it before the UI shows (review 74).
+            if (account.session == null && java.io.File(noBackupFilesDir, WIPE_MARK).exists()) withContext(Dispatchers.Main) { wipe() }
             _ready.value = true
+            // The first screen does not wait for the offline index (review 103).
+            offline.load()
             // Camera upload follows the session. Only when no job waits: a schedule() would stop the job that
             // started this process (review 3).
             account.state.map { it is AccountState.LoggedIn }.distinctUntilChanged().collect { inside ->
@@ -80,6 +83,9 @@ class FilenzaApp : Application() {
 
     /** Removes every local trace of the account: caches, thumbnails, offline files, queued transfers. */
     private suspend fun wipe() {
+        // A mark until the wipe ends: the next start finishes a wipe that a process death stopped (review 74).
+        val pending = java.io.File(noBackupFilesDir, WIPE_MARK)
+        withContext(Dispatchers.IO) { pending.createNewFile() }
         transfers.cancelAll()
         FileProvider.clear()
         CameraJob.cancel(this)
@@ -91,6 +97,7 @@ class FilenzaApp : Application() {
             java.io.File(noBackupFilesDir, CameraJob.MARK_FILE).delete()
         }
         prefs.edit { it.copy(camera = it.camera.copy(enabled = false, folder = null, folderName = ""), folderViews = emptyMap()) }
+        withContext(Dispatchers.IO) { pending.delete() }
     }
 
     /** Debug builds log disk and network work on the main thread, leaks and unsafe intents. */
@@ -101,3 +108,6 @@ class FilenzaApp : Application() {
 }
 
 val Context.app: FilenzaApp get() = applicationContext as FilenzaApp
+
+/** In noBackupFilesDir while a logout wipe runs (review 74). */
+private const val WIPE_MARK = "wipe-pending"

@@ -4,8 +4,10 @@ import android.content.Context
 import android.util.AtomicFile
 import app.filenza.crypto.DataKey
 import app.filenza.drive.ChunkSource
+import app.filenza.drive.Content
 import app.filenza.drive.Item
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +26,7 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
     private val dir = File(context.noBackupFilesDir, "offline")
     private val index = AtomicFile(File(dir, "index.bin"))
     private val mutex = Mutex()
+    private val adding = java.util.Collections.synchronizedSet(HashSet<String>())
     private var loaded = false
     private var entries = LinkedHashMap<String, Item>()
     private val _uuids = MutableStateFlow<Set<String>>(emptySet())
@@ -46,6 +49,8 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
             val array = JSONArray(key.decrypt(index.readFully().decodeToString()))
             (0 until array.length()).map { Item.fromJson(array.getJSONObject(it)) }.associateByTo(LinkedHashMap()) { it.uuid }
         }.getOrDefault(LinkedHashMap())
+        // Downloads that a process death stopped. No add runs yet: each add reads the index first.
+        dir.listFiles { f -> f.name.endsWith(TMP) }?.forEach { it.deleteRecursively() }
         loaded = true
         _uuids.value = entries.keys.toSet()
     }
@@ -58,33 +63,43 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
 
     /**
      * Stores all chunks of [item]. [fetch] gives the encrypted chunk; the GCM check happens at each read. A
-     * new version of the file (another key) replaces the old copy.
+     * new version of the file (another key) replaces the old copy. The chunks go to a temporary folder first,
+     * so that the old copy stays good until the new one is complete. A file that is offline with this key, or
+     * that another add downloads now, is skipped (review 44).
      */
     suspend fun add(item: Item, fetch: suspend (Int) -> ByteArray, progress: (Int) -> Unit) {
         require(!item.folder)
-        val target = File(dir, item.uuid)
-        withContext(Dispatchers.IO) {
-            target.deleteRecursively()
-            target.mkdirs()
-        }
+        if (!adding.add(item.uuid)) return
         try {
-            for (i in 0 until item.chunks) {
-                val data = fetch(i)
-                withContext(Dispatchers.IO) {
-                    val part = File(target, "$i.part")
-                    part.writeBytes(data)
-                    part.renameTo(File(target, "$i"))
-                }
-                progress(i + 1)
+            if (mutex.withLock { read(); entries[item.uuid]?.key == item.key }) return
+            val count = Content.chunkCount(item)
+            val tmp = File(dir, item.uuid + TMP)
+            withContext(Dispatchers.IO) {
+                tmp.deleteRecursively()
+                tmp.mkdirs()
             }
-        } catch (e: Throwable) {
-            withContext(Dispatchers.IO) { target.deleteRecursively() }
-            throw e
-        }
-        mutex.withLock {
-            read()
-            entries[item.uuid] = item
-            save()
+            try {
+                for (i in 0 until count) {
+                    val data = fetch(i)
+                    withContext(Dispatchers.IO) { File(tmp, "$i").writeBytes(data) }
+                    progress(i + 1)
+                }
+                mutex.withLock {
+                    withContext(Dispatchers.IO) {
+                        val target = File(dir, item.uuid)
+                        target.deleteRecursively()
+                        if (!tmp.renameTo(target)) throw java.io.IOException("Cannot write the offline copy")
+                    }
+                    entries[item.uuid] = item
+                    save()
+                }
+            } catch (e: Throwable) {
+                // NonCancellable: in a cancelled add, a plain withContext would throw before the cleanup (review 43).
+                withContext(Dispatchers.IO + NonCancellable) { tmp.deleteRecursively() }
+                throw e
+            }
+        } finally {
+            adding.remove(item.uuid)
         }
     }
 
@@ -119,5 +134,10 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
             throw e
         }
         _uuids.value = entries.keys.toSet()
+    }
+
+    private companion object {
+        /** The suffix of the folder of a download in progress. */
+        const val TMP = ".tmp"
     }
 }
