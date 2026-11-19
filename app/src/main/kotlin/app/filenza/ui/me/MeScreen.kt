@@ -80,7 +80,7 @@ fun MeScreen() {
         item(key = "trash") { Row(Icons.Delete, "Trash", null) { nav.go(Route.Folder(Listing.Trash, "Trash")) } }
         item(key = "h-app") { SectionHeader("App") }
         item(key = "camera") {
-            Row(Icons.PhotoCamera, "Camera upload", if (settings.camera.enabled) "On · ${settings.camera.folderName}" else "Off") { nav.go(Route.CameraSettings) }
+            Row(Icons.PhotoCamera, "Camera upload", if (settings.camera.enabled) "On" else "Off") { nav.go(Route.CameraSettings) }
         }
         item(key = "settings") { Row(Icons.Palette, "Settings", "Theme, app lock, screenshots, cache") { nav.go(Route.Settings) } }
         item(key = "logout") {

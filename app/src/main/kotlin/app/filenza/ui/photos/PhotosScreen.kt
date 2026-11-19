@@ -98,14 +98,15 @@ fun PhotosScreen() {
     if (folder == null) {
         NoFolder(onCamera = { nav.go(Route.CameraSettings) }, onPick = { picking = true })
     } else {
-        Timeline(model, settings.camera.folderName, settings.camera.enabled)
+        Timeline(model, rememberFolderName(folder), settings.camera.enabled)
     }
     if (picking) {
         FolderPicker(
             title = "Folder of your photos",
             confirm = "Use this folder",
             onPick = { uuid, name ->
-                app.prefs.edit { it.copy(camera = it.camera.copy(folder = uuid, folderName = name)) }
+                PhotoCache.name(uuid, name)
+                app.prefs.edit { it.copy(camera = it.camera.copy(folder = uuid)) }
                 CameraJob.schedule(context, app.prefs.value.camera)
             },
             onDismiss = { picking = false },
@@ -114,7 +115,7 @@ fun PhotosScreen() {
 }
 
 @Composable
-private fun Timeline(model: PhotosModel, folderName: String, uploading: Boolean) {
+private fun Timeline(model: PhotosModel, folderName: String?, uploading: Boolean) {
     val nav = LocalNav.current
     val haptics = LocalHapticFeedback.current
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -137,7 +138,7 @@ private fun Timeline(model: PhotosModel, folderName: String, uploading: Boolean)
                     Text(
                         listOfNotNull(
                             media?.let { count(it) },
-                            folderName.takeIf { it.isNotEmpty() },
+                            folderName?.takeIf { it.isNotEmpty() },
                             if (uploading) "Camera upload on" else null,
                         ).joinToString(" · "),
                         maxLines = 1,

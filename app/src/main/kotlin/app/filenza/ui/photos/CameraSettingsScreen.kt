@@ -38,7 +38,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -69,8 +68,8 @@ private enum class Waiting { NONE, ENABLE, VIDEOS }
 
 /**
  * Camera upload settings (DESIGN §9): on/off, the cloud folder, videos, and the network. Turning it on asks
- * for photo (and video) access, then whether the photos that are on the phone already upload too. Each
- * change schedules the background job again.
+ * for photo (and video) access and for notifications, then whether the photos that are on the phone already
+ * upload too. Each change schedules the background job again.
  */
 @Composable
 fun CameraSettingsScreen() {
@@ -78,9 +77,9 @@ fun CameraSettingsScreen() {
     val app = context.app
     val nav = LocalNav.current
     val haptics = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
     val settings by app.prefs.state.collectAsStateWithLifecycle()
     val cam = settings.camera
+    val folderName = rememberFolderName(cam.folder)
     var waiting by remember { mutableStateOf(Waiting.NONE) }
     var askSince by remember { mutableStateOf(false) }
     var noAccess by remember { mutableStateOf<Access?>(null) }
@@ -115,25 +114,29 @@ fun CameraSettingsScreen() {
 
     fun request(what: Waiting, videos: Boolean) {
         waiting = what
-        permissions.launch(media(videos))
+        permissions.launch(media(videos, notify = what == Waiting.ENABLE))
     }
 
-    /** Turns camera upload on. With no folder yet, it uses the root folder "Camera uploads" (made or found). */
+    /**
+     * Turns camera upload on. With no folder yet, it uses the root folder "Camera uploads" (made or found). It
+     * runs in the app scope: Back during the folder write does not stop it halfway (review 99).
+     */
     fun enable(since: Long) {
         busy = true
-        scope.launch {
+        app.scope.launch {
             try {
                 var next = app.prefs.value.camera
                 if (next.folder == null) {
                     val root = app.account.session?.baseFolder ?: return@launch
                     val folder = app.drive.ops.createFolder(root, DEFAULT_FOLDER)
-                    next = next.copy(folder = folder.uuid, folderName = folder.name)
+                    PhotoCache.name(folder.uuid, folder.name)
+                    next = next.copy(folder = folder.uuid)
                 }
                 val on = next.copy(enabled = true, since = since)
                 app.prefs.edit { it.copy(camera = on) }
-                CameraJob.schedule(context, on)
-                CameraJob.runNow(context, on)
-                allowed = CameraJob.allowed(context, on)
+                CameraJob.schedule(app, on)
+                CameraJob.runNow(app, on)
+                allowed = CameraJob.allowed(app, on)
                 haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
             } catch (e: CancellationException) {
                 throw e
@@ -163,7 +166,7 @@ fun CameraSettingsScreen() {
                             apply { it.copy(enabled = false) }
                             haptics.performHapticFeedback(HapticFeedbackType.ToggleOff)
                         }
-                        CameraJob.allowed(context, cam) -> askSince = true
+                        CameraJob.allowed(context, cam) && notifications(context) -> askSince = true
                         else -> request(Waiting.ENABLE, cam.videos)
                     }
                 }
@@ -184,7 +187,14 @@ fun CameraSettingsScreen() {
             }
             item(key = "h-where") { SectionHeader("Where") }
             item(key = "folder") {
-                Row(Icons.FolderFill, "Folder", cam.folderName.ifEmpty { "“$DEFAULT_FOLDER” in your drive (made when you turn upload on)" }) { picking = true }
+                Row(
+                    Icons.FolderFill,
+                    "Folder",
+                    when {
+                        cam.folder == null -> "“$DEFAULT_FOLDER” in your drive (made when you turn upload on)"
+                        else -> folderName ?: "A folder in your drive"
+                    },
+                ) { picking = true }
             }
             item(key = "h-what") { SectionHeader("What and when") }
             item(key = "videos") {
@@ -246,7 +256,10 @@ fun CameraSettingsScreen() {
         FolderPicker(
             title = "Camera upload folder",
             confirm = "Use this folder",
-            onPick = { uuid, name -> apply { it.copy(folder = uuid, folderName = name) } },
+            onPick = { uuid, name ->
+                PhotoCache.name(uuid, name)
+                apply { it.copy(folder = uuid) }
+            },
             onDismiss = { picking = false },
         )
     }
@@ -261,13 +274,19 @@ private fun access(context: Context): Access =
 
 /**
  * The permissions to ask. READ_MEDIA_VISUAL_USER_SELECTED goes with them, so that a "selected photos" answer
- * can be told apart from a refusal (it has an effect only when the manifest declares it).
+ * can be told apart from a refusal (it has an effect only when the manifest declares it). With [notify],
+ * also the notifications: camera upload tells the user about account errors with a notification. A refusal
+ * of the notifications does not stop camera upload.
  */
-private fun media(videos: Boolean): Array<String> = buildList {
+private fun media(videos: Boolean, notify: Boolean): Array<String> = buildList {
     add(Manifest.permission.READ_MEDIA_IMAGES)
     if (videos) add(Manifest.permission.READ_MEDIA_VIDEO)
     add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+    if (notify) add(Manifest.permission.POST_NOTIFICATIONS)
 }.toTypedArray()
+
+private fun notifications(context: Context): Boolean =
+    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
 /** Asked once each time the user turns camera upload on. */
 @Composable

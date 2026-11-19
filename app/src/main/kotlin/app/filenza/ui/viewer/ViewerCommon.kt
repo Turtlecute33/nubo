@@ -59,11 +59,16 @@ internal class Loaded<T> {
     }
 }
 
-/** Runs [load] for [key] (again after [Loaded.retry]); errors become user text. */
+/**
+ * The value of [key] from [cache], else runs [load] (again after [Loaded.retry]); errors become user text.
+ * Only the [current] page puts its value into the cache, so that the page on the screen is the last one that
+ * goes, and pages that load next to it do not push it out (review 51). [size] estimates the bytes of a value.
+ */
 @Composable
-internal fun <T> rememberLoaded(key: Any, load: suspend () -> T): Loaded<T> {
-    val state = remember(key) { Loaded<T>() }
+internal fun <T : Any> rememberLoaded(key: String, cache: PageCache, current: Boolean, size: (T) -> Long, load: suspend () -> T): Loaded<T> {
+    val state = remember(key) { Loaded<T>().apply { value = cache.get<T>(key) } }
     LaunchedEffect(key, state.attempt) {
+        if (state.value != null) return@LaunchedEffect
         try {
             state.value = load()
         } catch (e: CancellationException) {
@@ -72,6 +77,8 @@ internal fun <T> rememberLoaded(key: Any, load: suspend () -> T): Loaded<T> {
             state.error = userText(e)
         }
     }
+    val value = state.value
+    LaunchedEffect(value, current) { if (current && value != null) cache.put(key, value, size(value)) }
     return state
 }
 
