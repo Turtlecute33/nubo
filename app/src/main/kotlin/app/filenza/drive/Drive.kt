@@ -105,7 +105,8 @@ class Drive(
         synchronized(cache) {
             if (listings.any { it == null }) cache.clear() else listings.forEach { cache.remove(it) }
         }
-        listings.forEach { _changed.tryEmit(it) }
+        // A full buffer (a slow screen, many writes) must not lose a change: the emit then waits (review 76).
+        listings.forEach { if (!_changed.tryEmit(it)) scope.launch { _changed.emit(it) } }
     }
 
     fun clear() {

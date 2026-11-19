@@ -4,10 +4,10 @@ import app.filenza.api.Api
 import app.filenza.crypto.Bytes
 import app.filenza.crypto.DataKey
 import app.filenza.crypto.hex
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -31,7 +31,8 @@ class Uploader(private val drive: Drive) {
 
     suspend fun upload(parent: String, src: UploadSource, progress: (Long) -> Unit): Item = drive.guard { send(parent, src, progress) }
 
-    private suspend fun send(parent: String, src: UploadSource, progress: (Long) -> Unit): Item = coroutineScope {
+    /** On [Dispatchers.Default]: the BLAKE3 hash and the reads run there, not on the caller's thread (review 42). */
+    private suspend fun send(parent: String, src: UploadSource, progress: (Long) -> Unit): Item = withContext(Dispatchers.Default) {
         val ring = drive.keys()
         val name = NameRules.clean(src.name)
         val uuid = UUID.randomUUID().toString()
@@ -107,9 +108,14 @@ class Uploader(private val drive: Drive) {
                 }
             } catch (e: app.filenza.api.ApiException) {
                 // A retry after a lost answer can get an error for a call that worked: the file is there then (review 29).
-                val there = runCatching {
+                // A cancel here is a cancel, not a failure (review 79).
+                val there = try {
                     api.post("/v3/file/exists", JSONObject().put("nameHashed", ring.hashName(name)).put("parent", parent)).optString("uuid") == uuid
-                }.getOrDefault(false)
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (_: Exception) {
+                    false
+                }
                 if (!there) throw e
             }
         }

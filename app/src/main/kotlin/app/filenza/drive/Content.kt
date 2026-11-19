@@ -5,7 +5,6 @@ import app.filenza.crypto.MetaV1
 import app.filenza.crypto.hex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.bouncycastle.crypto.digests.Blake3Digest
 import java.io.IOException
@@ -52,15 +51,17 @@ class Content(private val api: Api, private val local: ChunkSource) {
 
     /**
      * Writes the plain file to [out] in order, with [PARALLEL] chunks on the way at a time. [progress] gets the
-     * bytes done. Throws [GeneralSecurityException] when a chunk or the whole-file hash does not match.
+     * bytes done, on a background thread. Throws [GeneralSecurityException] when a chunk or the whole-file hash
+     * does not match. The hash runs on [Dispatchers.Default]: the caller can be the main thread (review 42).
      */
-    suspend fun write(item: Item, out: OutputStream, progress: (Long) -> Unit) = coroutineScope {
+    suspend fun write(item: Item, out: OutputStream, progress: (Long) -> Unit) = withContext(Dispatchers.Default) {
+        val count = chunkCount(item)
         val hasher = if (item.hash.isNotEmpty()) Blake3Digest(256) else null
         var done = 0L
         var next = 0
         val window = ArrayDeque<kotlinx.coroutines.Deferred<ByteArray>>()
-        while (next < item.chunks || window.isNotEmpty()) {
-            while (next < item.chunks && window.size < PARALLEL) {
+        while (next < count || window.isNotEmpty()) {
+            while (next < count && window.size < PARALLEL) {
                 val i = next++
                 window.addLast(async { chunk(item, i) })
             }
@@ -80,5 +81,15 @@ class Content(private val api: Api, private val local: ChunkSource) {
     companion object {
         /** Chunks in flight for one file: enough to fill a fast link, little memory (about 4 MiB). */
         const val PARALLEL = 4
+
+        /**
+         * The chunk count of [item] from its size (research F-46). A server count that does not agree is refused
+         * before the download starts (review 80). An empty file has no chunk to read.
+         */
+        fun chunkCount(item: Item): Int {
+            val count = (item.size + Api.CHUNK - 1) / Api.CHUNK
+            if (item.size > 0 && item.chunks.toLong() != count) throw IOException("The file size does not match")
+            return count.toInt().coerceAtLeast(0)
+        }
     }
 }

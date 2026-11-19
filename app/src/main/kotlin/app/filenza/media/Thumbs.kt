@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import app.filenza.crypto.Bytes
 import app.filenza.crypto.DataKey
+import app.filenza.crypto.hex
 import app.filenza.drive.Content
 import app.filenza.drive.Item
 import app.filenza.util.FileType
@@ -42,16 +43,23 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
         else -> false
     }
 
-    fun peek(item: Item): ImageBitmap? = memory.get(key(item))
+    /** For the first composition of a row: no hash for items with no thumbnail (review 59). */
+    fun peek(item: Item): ImageBitmap? = if (supports(item)) memory.get(key(item)) else null
 
-    /** The thumbnail of [item], from memory, the disk or made now; null when it cannot be made. */
+    /**
+     * The thumbnail of [item], from memory, the disk or made now; null when it cannot be made. Only new
+     * thumbnails wait for the [gate]: a disk copy is small and shows at once (review 58). With no session (a
+     * public link visitor) there is no cache key: the thumbnail stays in memory only (review 81).
+     */
     suspend fun get(item: Item): ImageBitmap? {
         if (!supports(item)) return null
         val k = key(item)
         memory.get(k)?.let { return it }
         if (k in failed) return null
+        val ck = cacheKey()
+        if (ck != null) withContext(Dispatchers.IO) { fromDisk(ck, k) }?.let { return it.also { memory.put(k, it) } }
         return gate.withPermit {
-            memory.get(k) ?: withContext(Dispatchers.IO) { load(item, k) }?.also { memory.put(k, it) }
+            memory.get(k) ?: withContext(Dispatchers.IO) { load(item, k, ck) }?.also { memory.put(k, it) }
         }
     }
 
@@ -61,18 +69,21 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
         dir.deleteRecursively()
     }
 
-    private suspend fun load(item: Item, k: String): ImageBitmap? {
-        val ck = cacheKey() ?: return null
+    private fun fromDisk(ck: DataKey, k: String): ImageBitmap? {
         val file = File(dir, k)
-        if (file.isFile) {
-            runCatching { decode(ck.decryptChunk(file.readBytes())) }.getOrNull()?.let { return it.asImageBitmap() }
-        }
+        if (!file.isFile) return null
+        return runCatching { decode(ck.decryptChunk(file.readBytes())).asImageBitmap() }.getOrNull()
+    }
+
+    private suspend fun load(item: Item, k: String, ck: DataKey?): ImageBitmap? {
         // A network error or a cancel (the cell left the screen) can pass: only a file that does not decode
-        // is marked as failed for this process.
+        // is marked as failed for this process. DecodeException is an IOException: catch it first (review 46).
         val bitmap = try {
             make(item)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
+        } catch (_: ImageDecoder.DecodeException) {
+            null
         } catch (_: java.io.IOException) {
             return null
         } catch (_: Exception) {
@@ -82,13 +93,13 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
             failed += k
             return null
         }
-        runCatching {
+        if (ck != null) runCatching {
             val out = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, QUALITY, out)
             dir.mkdirs()
             val tmp = File(dir, "$k.tmp")
             tmp.writeBytes(ck.encryptChunk(out.toByteArray()))
-            tmp.renameTo(file)
+            tmp.renameTo(File(dir, k))
         }
         return bitmap.asImageBitmap()
     }
@@ -103,11 +114,20 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
                 d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             }
         }
-        FileType.VIDEO -> MediaMetadataRetriever().use { r ->
-            val source = ChunkReader(content, item).dataSource()
-            r.setDataSource(source)
-            r.getScaledFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, SIZE * 2, SIZE * 2)
-                .also { source.close() }
+        FileType.VIDEO -> {
+            val reader = ChunkReader(content, item)
+            val frame = runCatching {
+                MediaMetadataRetriever().use { r ->
+                    val source = reader.dataSource()
+                    r.setDataSource(source)
+                    r.getScaledFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, SIZE * 2, SIZE * 2)
+                        .also { source.close() }
+                }
+            }
+            // The retriever hides a failed read in its own error or a null frame: a read error (the network)
+            // does not mark the file as failed (review 46).
+            reader.error?.let { throw it }
+            frame.getOrThrow()
         }
         else -> null
     }
@@ -116,7 +136,7 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(webp))) { d, _, _ -> d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE }
 
     /** A file name that tells nothing: a hash of the UUID and the key (a new version has a new key). */
-    private fun key(item: Item): String = Bytes.sha1((item.uuid + item.key).encodeToByteArray()).joinToString("") { "%02x".format(it) }
+    private fun key(item: Item): String = Bytes.sha1((item.uuid + item.key).encodeToByteArray()).hex()
 
     private companion object {
         const val SIZE = 320

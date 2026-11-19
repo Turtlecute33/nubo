@@ -10,9 +10,11 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.AtomicFile
 import app.filenza.FilenzaApp
+import app.filenza.api.ApiException
 import app.filenza.app
 import app.filenza.data.AccountState
 import app.filenza.data.CameraUpload
@@ -22,6 +24,7 @@ import app.filenza.util.FileType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -39,8 +42,13 @@ import java.io.IOException
 class CameraJob : JobService() {
     private var work: Job? = null
 
+    /** Why the system stopped the run. Only the time limit counts as a try of the item (review 40). */
+    @Volatile
+    private var stopReason = JobParameters.STOP_REASON_UNDEFINED
+
     override fun onStartJob(params: JobParameters): Boolean {
         val a = app
+        stopReason = JobParameters.STOP_REASON_UNDEFINED
         work = a.scope.launch {
             var again = false
             var stopped = false
@@ -58,8 +66,11 @@ class CameraJob : JobService() {
             } catch (e: CancellationException) {
                 stopped = true
                 throw e
-            } catch (_: Exception) {
-                again = true // network or server problem: the system runs the job again with back-off
+            } catch (e: Exception) {
+                // An account or folder problem: tell the user, and try again at the next new photo with no back-off
+                // (review 38). A network or server problem: the system runs the job again with back-off.
+                val problem = accountProblem(e)
+                if (problem != null) a.notifier.cameraStopped(problem) else again = true
             } finally {
                 // After onStopJob the system runs the job again itself: no second schedule here.
                 if (!stopped) {
@@ -78,6 +89,7 @@ class CameraJob : JobService() {
 
     /** The system stops the job (time limit, network lost): run it again later. */
     override fun onStopJob(params: JobParameters): Boolean {
+        stopReason = params.stopReason
         work?.cancel()
         return true
     }
@@ -88,12 +100,17 @@ class CameraJob : JobService() {
      * true when more media wait than one run takes.
      */
     private suspend fun uploadNew(a: FilenzaApp, settings: CameraUpload, folder: String): Boolean {
+        val began = SystemClock.elapsedRealtime()
         val mark = withContext(Dispatchers.IO) { Mark(a, folder) }
         val entries = withContext(Dispatchers.IO) { pending(a, settings, mark) }
+        var good = false
         for (entry in entries) {
+            // A job has about 10 min. Stop before the time limit and run again at once: a time-out would grow
+            // the back-off (review 83).
+            if (SystemClock.elapsedRealtime() - began > RUN_MS) return true
             // An item that failed or ran out of job time MAX_TRIES times (a very large video) gives way, so
             // that it does not block every later photo (review 8).
-            if (!withContext(Dispatchers.IO) { mark.attempt(entry.id) }) {
+            if (mark.spent(entry.id)) {
                 withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
                 continue
             }
@@ -114,15 +131,28 @@ class CameraJob : JobService() {
                 }
             }
             if (NameRules.problem(name) == null) {
-                try {
+                val uploaded = try {
+                    // The try counts just before the upload: a stop in freeName is not a try (review 40).
+                    withContext(Dispatchers.IO + NonCancellable) { mark.attempt(entry.id) }
                     a.uploader.upload(folder, src) {}
+                    true
                 } catch (_: Unreadable) {
-                    // Deleted or moved since the query, or no longer readable: nothing to upload.
-                } catch (e: IOException) {
-                    // A lost network is not the item's fault: the try does not count.
-                    if (e !is app.filenza.api.ApiException) withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { mark.refund() }
+                    false // deleted or moved since the query, or no longer readable: nothing to upload
+                } catch (e: CancellationException) {
+                    // Wi-Fi lost, "Check now" or a setting change is not the item's fault; the time limit is (a
+                    // very large video). After a logout the mark is gone: do not write it again (review 40).
+                    if (stopReason != JobParameters.STOP_REASON_TIMEOUT && a.account.session != null) {
+                        withContext(Dispatchers.IO + NonCancellable) { mark.refund() }
+                    }
+                    throw e
+                } catch (e: Exception) {
+                    // Only an error of this item counts as a try (review 38).
+                    if (!itemError(e)) withContext(Dispatchers.IO + NonCancellable) { mark.refund() }
                     throw e
                 }
+                // The first good upload of a run removes an old "Camera upload stopped" notification.
+                if (uploaded && !good) a.notifier.cameraWorks()
+                good = good || uploaded
             }
             withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
         }
@@ -205,14 +235,16 @@ class CameraJob : JobService() {
 
         fun isDone(id: Long) = id in done
 
-        /** Counts a try of [id]; false after [MAX_TRIES] tries. */
-        fun attempt(id: Long): Boolean {
+        /** True when [id] had [MAX_TRIES] tries. */
+        fun spent(id: Long) = tryId == id && tries >= MAX_TRIES
+
+        /** Counts a try of [id]. */
+        fun attempt(id: Long) {
             if (tryId == id) tries++ else {
                 tryId = id
                 tries = 1
             }
             save()
-            return tries <= MAX_TRIES
         }
 
         fun refund() {
@@ -251,6 +283,9 @@ class CameraJob : JobService() {
     companion object {
         private const val ID = 2
         private const val MAX_PER_RUN = 200
+
+        /** About 8 min of the 10 min that the system gives a job (review 83). */
+        private const val RUN_MS = 8 * 60_000L
 
         /** The mark file. A logout must delete it with the other account data. */
         const val MARK_FILE = "camera-mark.json"
@@ -295,3 +330,27 @@ class CameraJob : JobService() {
         fun cancel(context: Context) = context.getSystemService(JobScheduler::class.java).cancel(ID)
     }
 }
+
+private val STORAGE_FULL = setOf("max_storage_reached", "storage_limit_reached")
+private val FOLDER_GONE = setOf("folder_not_found", "invalid_folder")
+
+/**
+ * Short text for an error of the account or the cloud folder, not of one item: storage full, folder gone,
+ * session ended. Null for other errors. Such an error stops the run with no try counted (review 38).
+ */
+internal fun accountProblem(e: Throwable): String? = when {
+    e !is ApiException -> null
+    e.sessionEnded -> "The session ended. Log in again."
+    e.code in STORAGE_FULL -> "Your Filen storage is full"
+    e.code in FOLDER_GONE -> "The camera upload folder is not there any more"
+    else -> null
+}
+
+/**
+ * True for an error that comes from the item, so that it counts as a try: a refusal of this file by the
+ * server. A lost network, a busy server and the errors of [accountProblem] do not count. An error that is not
+ * an API error is not the item's fault either: before review 34, such an error (a bug) skipped every photo
+ * (review 38).
+ */
+internal fun itemError(e: Throwable): Boolean =
+    e is ApiException && accountProblem(e) == null && e.http < 500 && e.http != 429 && e.code != "rate_limited" && e.code != "internal_error"

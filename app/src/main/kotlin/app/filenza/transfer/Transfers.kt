@@ -1,7 +1,10 @@
 package app.filenza.transfer
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.net.Uri
+import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.provider.MediaStore
@@ -16,6 +19,8 @@ import app.filenza.util.FileType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +31,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 @Immutable
 data class Transfer(
@@ -61,6 +67,28 @@ class Transfers(private val app: FilenzaApp) {
     private val gate = Semaphore(PARALLEL)
     private val jobs = HashMap<Long, Job>()
     private val retries = HashMap<Long, () -> Unit>()
+
+    /** The loops that read picked or shared URIs, so that [cancelAll] stops them too (review 77). Main thread only. */
+    private val intake = ArrayList<Job>()
+
+    /**
+     * Deletes the pending Download rows that a process death left (review 75). Once for each process, before the
+     * first download: a row of this process is never pending at that time.
+     */
+    private val sweep by lazy {
+        app.scope.async(Dispatchers.IO) {
+            runCatching {
+                val resolver = app.contentResolver
+                val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                // With no storage permission, the query sees only the rows of this app.
+                val args = Bundle().apply { putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_ONLY) }
+                resolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), args, null)?.use { c ->
+                    while (c.moveToNext()) resolver.delete(ContentUris.withAppendedId(collection, c.getLong(0)), null, null)
+                }
+            }
+        }
+    }
+
     private val _list = MutableStateFlow<List<Transfer>>(emptyList())
     val list: StateFlow<List<Transfer>> = _list.asStateFlow()
 
@@ -72,16 +100,32 @@ class Transfers(private val app: FilenzaApp) {
     /** Uploads content URIs that the user picked or shared into the folder [parent]. */
     fun upload(parent: String, uris: List<Uri>) {
         val resolver = app.contentResolver
+        intake.removeAll { it.isCompleted }
         // The provider queries can be slow (a cloud document provider): off the main thread.
-        app.scope.launch {
+        intake += app.scope.launch {
             for (uri in uris) {
-                val meta = withContext(Dispatchers.IO) { runCatching { describe(uri) }.getOrNull() }
-                val name = meta?.name ?: "File"
-                val type = withContext(Dispatchers.IO) { runCatching { resolver.getType(uri) }.getOrNull() }
-                val src = UploadSource(name, type ?: FileType.mime(name), meta?.modified ?: 0, 0) {
-                    resolver.openInputStream(uri) ?: throw IOException("The file cannot be read")
+                // The read grant ends with the activity that got the URI, often before a queued upload starts. The
+                // file is opened here, while the grant is alive; a retry opens the URI again (review 56).
+                val held = AtomicReference<ParcelFileDescriptor?>()
+                val (meta, type) = try {
+                    withContext(Dispatchers.IO) {
+                        held.set(runCatching { resolver.openFileDescriptor(uri, "r") }.getOrNull())
+                        runCatching { describe(uri) }.getOrNull() to runCatching { resolver.getType(uri) }.getOrNull()
+                    }
+                } catch (e: CancellationException) {
+                    runCatching { held.getAndSet(null)?.close() }
+                    throw e
                 }
-                upload(parent, src, meta?.size ?: -1)
+                val name = meta?.name ?: "File"
+                val src = UploadSource(name, type ?: FileType.mime(name), meta?.modified ?: 0, 0) {
+                    held.getAndSet(null)?.let { ParcelFileDescriptor.AutoCloseInputStream(it) }
+                        ?: resolver.openInputStream(uri) ?: throw IOException("The file cannot be read")
+                }
+                val id = upload(parent, src, meta?.size ?: -1)
+                // A task that ends with no read (cancel, a failure before the read) closes the file.
+                val close = { runCatching { held.getAndSet(null)?.close() } }
+                val job = jobs[id]
+                if (job != null) job.invokeOnCompletion { close() } else close()
             }
         }
     }
@@ -142,6 +186,8 @@ class Transfers(private val app: FilenzaApp) {
     fun clearFinished() = _list.update { l -> l.filter { it.active }.also { kept -> retries.keys.retainAll(kept.map { it.id }.toSet()) } }
 
     fun cancelAll() {
+        intake.forEach { it.cancel() }
+        intake.clear()
         jobs.values.forEach { it.cancel() }
         jobs.clear()
         retries.clear()
@@ -157,17 +203,21 @@ class Transfers(private val app: FilenzaApp) {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/Filenza" + if (folder.isEmpty()) "" else "/$folder")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            val uri = withContext(Dispatchers.IO) { resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) }
-                ?: throw IOException("Cannot write to Downloads")
+            sweep.await()
+            var uri: Uri? = null
             try {
+                // NonCancellable, and the row goes into a variable at once: a cancel during the insert must not
+                // lose the URI of a pending row (review 75).
+                withContext(Dispatchers.IO + NonCancellable) { uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) }
+                val row = uri ?: throw IOException("Cannot write to Downloads")
                 withContext(Dispatchers.IO) {
-                    (resolver.openOutputStream(uri, "w") ?: throw IOException("Cannot write to Downloads")).use { out ->
+                    (resolver.openOutputStream(row, "w") ?: throw IOException("Cannot write to Downloads")).use { out ->
                         app.content.write(item, out) { report(it) }
                     }
-                    resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                    resolver.update(row, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
                 }
             } catch (e: Throwable) {
-                withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { runCatching { resolver.delete(uri, null, null) } }
+                uri?.let { row -> withContext(Dispatchers.IO + NonCancellable) { runCatching { resolver.delete(row, null, null) } } }
                 throw e
             }
         }

@@ -12,6 +12,7 @@ import java.io.IOException
 import java.security.GeneralSecurityException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -66,6 +67,17 @@ class ContentTest {
         val c = chunks(plain)
         val short = listOf(c[0], c[1], key.encryptChunk(ByteArray(10)))
         assertFailsWith<IOException> { Content(Api(server(short)), { _, _ -> null }).write(item(""), ByteArrayOutputStream()) {} }
+    }
+
+    @Test
+    fun aChunkCountThatDoesNotFitTheSizeIsRefusedFirst() = runTest {
+        val fake = server(chunks(plain))
+        // Review 80: the server says 2 chunks for a file of 3 chunks; nothing downloads.
+        assertFailsWith<IOException> { Content(Api(fake), { _, _ -> null }).write(item(blake3(plain)).copy(chunks = 2), ByteArrayOutputStream()) {} }
+        assertTrue(fake.requests.isEmpty())
+        assertEquals(3, Content.chunkCount(item("")))
+        assertEquals(0, Content.chunkCount(item("", size = 0).copy(chunks = 0)))
+        assertEquals(1, Content.chunkCount(item("", size = Api.CHUNK.toLong()).copy(chunks = 1)))
     }
 
     @Test

@@ -22,6 +22,11 @@ class ChunkReader(private val content: Content, val item: Item) {
     @Volatile
     private var closed = false
 
+    /** The first read error of [dataSource]. MediaMetadataRetriever hides it in its own error (review 46). */
+    @Volatile
+    var error: Exception? = null
+        private set
+
     /** Copies up to [length] bytes from [position] into [out]; returns the count, or -1 at the end. */
     @Synchronized
     fun read(position: Long, out: ByteArray, offset: Int, length: Int): Int {
@@ -48,10 +53,9 @@ class ChunkReader(private val content: Content, val item: Item) {
         override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int =
             try {
                 read(position, buffer, offset, size)
-            } catch (e: java.io.IOException) {
-                throw e
             } catch (e: Exception) {
-                throw java.io.IOException(e)
+                if (error == null) error = e
+                throw e as? java.io.IOException ?: java.io.IOException(e)
             }
 
         override fun getSize(): Long = item.size
