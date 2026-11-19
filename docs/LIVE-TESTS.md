@@ -30,7 +30,7 @@ files.
 
 ## 4. Download and viewers
 
-1. Download a file and a folder. Expected: they are in Download/Filenza, the folder with its
+1. Download a file and a folder. Expected: they are in Download/nubo, the folder with its
    structure.
 2. Open an image (zoom, swipe), a video (seek), an audio file, a text file and a PDF.
 3. "Open with" a document in another app; "Send a copy" to another app.
@@ -44,7 +44,7 @@ files.
 
 1. Make a public link of a file and of a folder, open both in a browser (logged out of Filen).
 2. Add a password and an expiry. Remove the link.
-3. Open a public link in Filenza (share it to the app, or Home › Open link).
+3. Open a public link in nubo (share it to the app, or Home › Open link).
 4. Share a folder with a second Filen account, open it there, stop sharing.
 
 ## 7. Photos and camera upload
