@@ -24,7 +24,7 @@ class Auth(private val api: Api) {
         val mail = email.trim() // as typed, like the official SDKs: the server decides about letter case
         val info = api.post("/v3/auth/info", JSONObject().put("email", mail))
         val version = info.optInt("authVersion", 2)
-        val salt = info.optString("salt")
+        val salt = info.optText("salt")
         // Argon2id takes about one second and 64 MiB: never on the main thread.
         val derived = withContext(Dispatchers.Default) {
             when (version) {
@@ -51,7 +51,7 @@ class Auth(private val api: Api) {
         val user = runCatching { authed.get("/v3/user/info") }.getOrNull()
         return Session(
             apiKey = key,
-            email = user?.optString("email")?.ifEmpty { null } ?: mail,
+            email = user?.optText("email")?.ifEmpty { null } ?: mail,
             userId = user?.optLong("id") ?: 0,
             baseFolder = base,
             keys = ring,

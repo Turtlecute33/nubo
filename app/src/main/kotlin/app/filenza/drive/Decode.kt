@@ -1,12 +1,14 @@
 package app.filenza.drive
 
+import app.filenza.api.optText
 import app.filenza.crypto.DataKey
 import org.json.JSONObject
 
 /**
  * Turns server entries into [Item]s (research F-LIST). [decrypt] opens the metadata: the account keys for own
  * items, the private key for items shared with me, the link key for public links. An entry that does not
- * decrypt or has bad fields gives null: the list shows the rest. Never logs names or keys.
+ * decrypt or has bad fields gives null: the list shows the rest. Never logs names or keys. A JSON null in a text
+ * field gives "" ([optText], review 61).
  */
 object Decode {
     fun file(o: JSONObject, source: Source, decrypt: (String) -> String): Item? = runCatching {
@@ -16,22 +18,22 @@ object Decode {
         val name = meta.getString("name")
         if (!validName(name)) return null
         Item(
-            uuid = o.getString("uuid"),
-            parent = o.optString("parent"),
+            uuid = uuid(o),
+            parent = o.optText("parent"),
             name = name,
             folder = false,
             size = meta.optLongLoose("size").takeIf { it >= 0 } ?: o.optLong("size"),
-            mime = meta.optString("mime"),
+            mime = meta.optText("mime"),
             modified = ms(meta.optLongLoose("lastModified")).takeIf { it > 0 } ?: ms(o.optLong("timestamp")),
             created = ms(meta.optLongLoose("creation")),
             uploaded = ms(o.optLong("timestamp")),
             favorite = o.optBoolLoose("favorited"),
             key = key,
-            region = o.optString("region"),
-            bucket = o.optString("bucket"),
+            region = o.optText("region"),
+            bucket = o.optText("bucket"),
             chunks = o.optInt("chunks"),
             version = o.optInt("version", 2),
-            hash = meta.optString("blake3").takeIf { it.length == 64 }.orEmpty(),
+            hash = meta.optText("blake3").takeIf { it.length == 64 }.orEmpty(),
             source = source,
         )
     }.getOrNull()
@@ -43,18 +45,26 @@ object Decode {
         if (!validName(name)) return null
         val created = ms(meta.optLongLoose("creation")).takeIf { it > 0 } ?: ms(o.optLong("timestamp"))
         Item(
-            uuid = o.getString("uuid"),
-            parent = o.optString("parent"),
+            uuid = uuid(o),
+            parent = o.optText("parent"),
             name = name,
             folder = true,
             modified = created,
             created = created,
             uploaded = ms(o.optLong("timestamp")),
             favorite = o.optBoolLoose("favorited"),
-            color = o.optString("color").takeIf { it != "null" }.orEmpty(),
+            color = o.optText("color"),
             source = source,
         )
     }.getOrNull()
+
+    /** True for a UUID: only hex digits and dashes, so it is safe in a file path (`offline/<uuid>`). */
+    fun isUuid(text: String): Boolean = UUID.matches(text)
+
+    /** The item's UUID. It goes into file paths, so a bad server cannot send ".." (review 60). */
+    private fun uuid(o: JSONObject): String = o.getString("uuid").also { require(isUuid(it)) }
+
+    private val UUID = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
     /** A name that is safe as a file name on the phone: no path parts, no control characters. */
     fun validName(name: String): Boolean =

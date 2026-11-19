@@ -2,6 +2,7 @@ package app.filenza.drive
 
 import app.filenza.api.Api
 import app.filenza.api.ApiException
+import app.filenza.api.optText
 import app.filenza.crypto.Keyring
 import app.filenza.data.Account
 import app.filenza.offline.Offline
@@ -129,9 +130,9 @@ class Drive(
         val decrypt = { text: String -> shared(ring, text) }
         return withContext(Dispatchers.Default) {
             data.optJSONArray("folders").objects().mapNotNull { o ->
-                Decode.folder(o, Source.SharedIn(o.optString("sharerEmail").ifEmpty { owner }), "metadata", decrypt)
+                Decode.folder(o, Source.SharedIn(o.optText("sharerEmail").ifEmpty { owner }), "metadata", decrypt)
             } + data.optJSONArray("uploads").objects().mapNotNull { o ->
-                Decode.file(o, Source.SharedIn(o.optString("sharerEmail").ifEmpty { owner }), decrypt)
+                Decode.file(o, Source.SharedIn(o.optText("sharerEmail").ifEmpty { owner }), decrypt)
             }
         }
     }

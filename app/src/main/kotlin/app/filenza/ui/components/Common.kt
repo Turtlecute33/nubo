@@ -48,13 +48,25 @@ import app.filenza.api.ApiException
 import java.io.IOException
 import java.security.GeneralSecurityException
 
-/** The one place that turns an exception into text for the user. Never shows names, keys or server text. */
+/** The one place that turns an exception into text for the user. Never shows names, keys, paths or server text. */
 fun userText(e: Throwable): String = when (e) {
     is ApiException -> e.userText
     is GeneralSecurityException -> "The data cannot be decrypted"
-    is IOException -> e.message?.takeIf { it.length < 80 } ?: "Network error"
-    else -> "The operation failed (${e.javaClass.simpleName})"
+    else -> (e as? IOException)?.let(::ownText) ?: "The operation failed (${e.javaClass.simpleName})"
 }
+
+/**
+ * The app puts its own text in a plain [IOException]. The subclasses of the system (FileNotFoundException, …)
+ * and a wrapped cause can hold a path or a URI. The system also puts paths in some plain ones. All these show
+ * no text (review 70).
+ */
+private fun ownText(e: IOException): String? = e.message?.takeIf {
+    (e.javaClass == IOException::class.java || e is app.filenza.net.Transport.TooLarge) &&
+        it.length < 80 && it != e.cause?.toString() && !SYSTEM_TEXT.containsMatchIn(it)
+}
+
+/** A path ("/data/…") or a URI ("content://…"). */
+private val SYSTEM_TEXT = Regex("""(^|\s)/\w|\w:/""")
 
 /** Opens an https [url] in the browser. Nothing happens when the device has no browser. */
 fun openLink(context: Context, url: String) {

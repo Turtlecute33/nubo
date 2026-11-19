@@ -15,6 +15,8 @@ import app.filenza.crypto.hex
 import app.filenza.drive.Item
 import app.filenza.util.FileType
 import java.io.FileNotFoundException
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -42,7 +44,9 @@ class FileProvider : ContentProvider() {
         if (mode != "r") throw SecurityException("Read only")
         val item = entry(uri) ?: throw FileNotFoundException("Unknown or expired file")
         val context = context ?: throw FileNotFoundException("No context")
-        return ProxyFd.open(context, ChunkReader(context.app.content, item))
+        val reader = ChunkReader(context.app.content, item)
+        readers += reader
+        return ProxyFd.open(context, reader)
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? = throw UnsupportedOperationException()
@@ -58,6 +62,9 @@ class FileProvider : ContentProvider() {
         private const val LIFETIME_MS = 6 * 60 * 60_000L
         private val entries = ConcurrentHashMap<String, Entry>()
 
+        /** The readers of the open descriptors, for [clear]. Weak: a closed descriptor lets its reader go. */
+        private val readers: MutableSet<ChunkReader> = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+
         /** A new content URI for [item]: `content://<package>.files/<token>/<name>`. */
         fun uriFor(context: Context, item: Item): Uri {
             require(!item.folder)
@@ -70,8 +77,18 @@ class FileProvider : ContentProvider() {
 
         fun mime(item: Item): String = item.mime.takeIf { '/' in it } ?: FileType.mime(item.name)
 
-        /** Forgets every URI (at logout): apps that hold one can read no more. */
-        fun clear() = entries.clear()
+        /**
+         * Forgets every URI (at logout): apps that hold one can read no more. An app that has a descriptor open
+         * gets an I/O error at its next read (review 67).
+         */
+        fun clear() {
+            entries.clear()
+            synchronized(readers) {
+                // Closing the reader's data source stops the reader itself.
+                readers.forEach { it.dataSource().close() }
+                readers.clear()
+            }
+        }
 
         private fun entry(uri: Uri): Item? {
             val token = uri.pathSegments.firstOrNull() ?: return null

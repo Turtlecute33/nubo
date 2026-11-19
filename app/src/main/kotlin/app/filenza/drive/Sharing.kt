@@ -1,6 +1,7 @@
 package app.filenza.drive
 
 import app.filenza.api.ApiException
+import app.filenza.api.optText
 import app.filenza.crypto.Bytes
 import app.filenza.crypto.Keyring
 import app.filenza.crypto.hex
@@ -101,11 +102,11 @@ class Sharing internal constructor(private val drive: Drive) {
             val o = api.post("/v3/dir/link/status", JSONObject().put("uuid", item.uuid))
             if (!o.optBoolean("exists")) return@guard LinkState(false)
             val key = drive.keys().decryptMeta(o.getString("key"))
-            LinkState(true, o.getString("uuid"), Links.url(true, o.getString("uuid"), key), o.optString("expirationText", "never"), hasPassword(o))
+            LinkState(true, o.getString("uuid"), Links.url(true, o.getString("uuid"), key), o.optText("expirationText", "never"), hasPassword(o))
         } else {
             val o = api.post("/v3/file/link/status", JSONObject().put("uuid", item.uuid))
             if (!o.optBoolean("enabled")) return@guard LinkState(false)
-            LinkState(true, o.getString("uuid"), Links.url(false, o.getString("uuid"), item.key), o.optString("expirationText", "never"), hasPassword(o))
+            LinkState(true, o.getString("uuid"), Links.url(false, o.getString("uuid"), item.key), o.optText("expirationText", "never"), hasPassword(o))
         }
     }
 
@@ -186,7 +187,7 @@ class Sharing internal constructor(private val drive: Drive) {
 
     suspend fun sharedWith(item: Item): List<ShareUser> = drive.guard {
         api.post("/v3/item/shared", JSONObject().put("uuid", item.uuid)).optJSONArray("users").objects()
-            .map { ShareUser(it.optLong("id"), it.optString("email")) }
+            .map { ShareUser(it.optLong("id"), it.optText("email")) }
     }
 
     /** Shares [item] (and all inside, for a folder) with the Filen user [email]. Read only for the receiver. */
@@ -196,7 +197,7 @@ class Sharing internal constructor(private val drive: Drive) {
             api.post("/v3/user/publicKey", JSONObject().put("email", mail)).getString("publicKey")
         } catch (e: ApiException) {
             // Only a refused address means "no account"; an ended session or a server problem keeps its own text.
-            if (e.sessionEnded || e.http >= 500 || e.http == 429) throw e
+            if (e.sessionEnded || e.transient) throw e
             throw IOException("No Filen account has this email address", e)
         }
         val all = if (item.folder) listOf(item) + drive.tree(item.uuid) else listOf(item)
