@@ -26,5 +26,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Filenza"
+rootProject.name = "nubo"
 include(":app")

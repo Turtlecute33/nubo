@@ -19,15 +19,15 @@ fun keychain(service: String): Provider<String> =
         .standardOutput.asText.map { it.trim() }
 
 android {
-    namespace = "app.filenza"
+    namespace = "app.nubo"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "app.filenza"
+        applicationId = "app.nubo"
         minSdk = 35
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     buildTypes {

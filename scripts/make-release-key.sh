@@ -5,6 +5,8 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
+# The key keeps the first name of the project (Filenza): a new name must not make a new key, because a
+# release with another certificate cannot update the installed app.
 # Absolute: app/build.gradle.kts would resolve a relative path against app/.
 KEYSTORE="${${KEYSTORE:-$HOME/.config/filenza/release.jks}:A}"
 ALIAS="filenza"

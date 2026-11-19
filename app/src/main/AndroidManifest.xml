@@ -26,7 +26,7 @@
     <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
 
     <application
-        android:name=".FilenzaApp"
+        android:name=".NuboApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
@@ -35,7 +35,7 @@
         android:memtagMode="sync"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Filenza"
+        android:theme="@style/Theme.Nubo"
         android:usesCleartextTraffic="false">
 
         <activity
@@ -85,7 +85,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- "Open with" and "Send a copy": NOT exported. Another app reads only a URI that Filenza granted to it
+        <!-- "Open with" and "Send a copy": NOT exported. Another app reads only a URI that nubo granted to it
              in an intent; the data streams from a proxy file descriptor, with no plain copy on the disk. -->
         <provider
             android:name=".media.FileProvider"
