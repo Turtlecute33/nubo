@@ -1,0 +1,158 @@
+package app.filenza.ui.viewer
+
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.MediaPlayer
+import android.view.SurfaceHolder
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import app.filenza.FilenzaApp
+import app.filenza.drive.Item
+import app.filenza.media.ChunkReader
+
+/**
+ * The platform MediaPlayer over a [ChunkReader]: the player asks for byte ranges, the reader fetches and
+ * decrypts only those chunks. No local server and no plain file. Asks for audio focus while it plays and
+ * pauses when another app takes it. Call [release] when the page goes away.
+ */
+@Stable
+internal class Player(app: FilenzaApp, item: Item, video: Boolean) {
+    private val source = ChunkReader(app.content, item).dataSource()
+    private val audio = app.getSystemService(AudioManager::class.java)
+    private var mp: MediaPlayer? = MediaPlayer()
+    private var preparing = false
+    private var playWhenReady = false
+    private var released = false
+
+    var prepared by mutableStateOf(false)
+        private set
+    var playing by mutableStateOf(false)
+        private set
+    var buffering by mutableStateOf(false)
+        private set
+    var error by mutableStateOf<String?>(null)
+        private set
+    var duration by mutableIntStateOf(0)
+        private set
+    var position by mutableIntStateOf(0)
+        private set
+    var width by mutableIntStateOf(0)
+        private set
+    var height by mutableIntStateOf(0)
+        private set
+
+    private val attributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_MEDIA)
+        .setContentType(if (video) AudioAttributes.CONTENT_TYPE_MOVIE else AudioAttributes.CONTENT_TYPE_MUSIC)
+        .build()
+
+    private val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        .setAudioAttributes(attributes)
+        .setOnAudioFocusChangeListener { change -> if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) pause() }
+        .build()
+
+    init {
+        mp?.apply {
+            setAudioAttributes(attributes)
+            setOnPreparedListener {
+                preparing = false
+                prepared = true
+                this@Player.duration = it.duration.coerceAtLeast(0)
+                if (playWhenReady) start()
+            }
+            setOnVideoSizeChangedListener { _, w, h ->
+                width = w
+                height = h
+            }
+            setOnInfoListener { _, what, _ ->
+                when (what) {
+                    MediaPlayer.MEDIA_INFO_BUFFERING_START -> buffering = true
+                    MediaPlayer.MEDIA_INFO_BUFFERING_END -> buffering = false
+                }
+                false
+            }
+            setOnCompletionListener {
+                playing = false
+                position = this@Player.duration
+                audio.abandonAudioFocusRequest(focus)
+            }
+            setOnSeekCompleteListener { tick() }
+            setOnErrorListener { _, _, _ ->
+                preparing = false
+                playing = false
+                error = "This file cannot be played here."
+                audio.abandonAudioFocusRequest(focus)
+                true
+            }
+        }
+    }
+
+    /** Starts loading (once); plays when ready if [play]. */
+    fun prepare(play: Boolean) {
+        val p = mp ?: return
+        playWhenReady = play
+        if (prepared) {
+            if (play) start()
+            return
+        }
+        if (preparing || error != null) return
+        preparing = true
+        try {
+            p.setDataSource(source)
+            p.prepareAsync()
+        } catch (_: Exception) {
+            preparing = false
+            error = "This file cannot be played here."
+        }
+    }
+
+    fun start() {
+        val p = mp ?: return
+        if (!prepared) return prepare(true)
+        if (audio.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) return
+        if (position >= duration && duration > 0) p.seekTo(0)
+        p.start()
+        playing = true
+    }
+
+    fun pause() {
+        playWhenReady = false
+        val p = mp ?: return
+        if (prepared && p.isPlaying) p.pause()
+        playing = false
+        audio.abandonAudioFocusRequest(focus)
+    }
+
+    fun toggle() = if (playing) pause() else start()
+
+    fun seekTo(ms: Int) {
+        val p = mp ?: return
+        if (!prepared) return
+        position = ms.coerceIn(0, duration)
+        p.seekTo(position.toLong(), MediaPlayer.SEEK_CLOSEST)
+    }
+
+    fun skip(ms: Int) = seekTo(position + ms)
+
+    fun tick() {
+        val p = mp ?: return
+        if (prepared && !released) position = p.currentPosition
+    }
+
+    fun setDisplay(holder: SurfaceHolder?) {
+        if (!released) runCatching { mp?.setDisplay(holder) }
+    }
+
+    fun release() {
+        if (released) return
+        released = true
+        audio.abandonAudioFocusRequest(focus)
+        mp?.release()
+        mp = null
+        runCatching { source.close() }
+    }
+}
