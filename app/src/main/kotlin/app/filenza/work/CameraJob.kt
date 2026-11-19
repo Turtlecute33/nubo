@@ -14,16 +14,20 @@ import android.provider.MediaStore
 import android.util.AtomicFile
 import app.filenza.FilenzaApp
 import app.filenza.app
+import app.filenza.data.AccountState
 import app.filenza.data.CameraUpload
+import app.filenza.drive.NameRules
 import app.filenza.drive.UploadSource
 import app.filenza.util.FileType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.IOException
 
 /**
@@ -37,20 +41,36 @@ class CameraJob : JobService() {
 
     override fun onStartJob(params: JobParameters): Boolean {
         val a = app
-        val settings = a.prefs.value.camera
-        val folder = settings.folder
-        if (!settings.enabled || folder == null || a.account.session == null || !allowed(a, settings)) return false
         work = a.scope.launch {
             var again = false
+            var stopped = false
+            var more = false
+            var active = false
             try {
-                uploadNew(a, settings, folder)
+                // The job can start the process: wait until the settings and the session are read from the disk.
+                a.account.state.first { it != AccountState.Loading }
+                val settings = a.prefs.value.camera
+                val folder = settings.folder
+                if (settings.enabled && folder != null && a.account.session != null && allowed(a, settings)) {
+                    active = true
+                    more = uploadNew(a, settings, folder)
+                }
             } catch (e: CancellationException) {
+                stopped = true
                 throw e
             } catch (_: Exception) {
                 again = true // network or server problem: the system runs the job again with back-off
             } finally {
-                jobFinished(params, again)
-                if (!again) schedule(a, a.prefs.value.camera)
+                // After onStopJob the system runs the job again itself: no second schedule here.
+                if (!stopped) {
+                    jobFinished(params, again)
+                    val now = a.prefs.value.camera
+                    when {
+                        again || !active -> Unit
+                        more -> runNow(a, now)
+                        else -> schedule(a, now)
+                    }
+                }
             }
         }
         return true
@@ -62,16 +82,38 @@ class CameraJob : JobService() {
         return true
     }
 
-    private suspend fun uploadNew(a: FilenzaApp, settings: CameraUpload, folder: String) {
+    /**
+     * Uploads the pending media in order and moves the mark after each one. A file that cannot be read or has
+     * a name that Filen refuses is skipped; any other error stops the run (the job runs again later). Returns
+     * true when more media wait than one run takes.
+     */
+    private suspend fun uploadNew(a: FilenzaApp, settings: CameraUpload, folder: String): Boolean {
         val mark = Mark(a)
-        for (entry in withContext(Dispatchers.IO) { pending(a, settings, mark.read()) }) {
+        val entries = withContext(Dispatchers.IO) { pending(a, settings, mark.read(folder)) }
+        for (entry in entries) {
             val src = UploadSource(entry.name, entry.mime, entry.modified, entry.taken) {
-                a.contentResolver.openInputStream(entry.uri) ?: throw IOException("The file is gone")
+                try {
+                    a.contentResolver.openInputStream(entry.uri) ?: throw Unreadable()
+                } catch (_: FileNotFoundException) {
+                    throw Unreadable()
+                } catch (_: SecurityException) {
+                    throw Unreadable()
+                }
             }
-            a.uploader.upload(folder, src) {}
-            withContext(Dispatchers.IO) { mark.write(entry.added, entry.id) }
+            if (NameRules.problem(entry.name) == null) {
+                try {
+                    a.uploader.upload(folder, src) {}
+                } catch (_: Unreadable) {
+                    // Deleted or moved since the query, or no longer readable: nothing to upload.
+                }
+            }
+            withContext(Dispatchers.IO) { mark.write(entry.added, entry.id, folder) }
         }
+        return entries.size >= MAX_PER_RUN
     }
+
+    /** A media file that went away between the query and the upload. */
+    private class Unreadable : IOException("The file is gone")
 
     private class Entry(val uri: Uri, val id: Long, val added: Long, val name: String, val mime: String, val modified: Long, val taken: Long)
 
@@ -105,18 +147,21 @@ class CameraJob : JobService() {
         return out.sortedWith(compareBy({ it.added }, { it.id })).take(MAX_PER_RUN)
     }
 
-    /** The last uploaded item: (DATE_ADDED in s, MediaStore ID). Stored in no-backup storage. */
+    /**
+     * The last uploaded item: (DATE_ADDED in s, MediaStore ID), for one cloud folder. Another folder starts
+     * from no mark, so that a change of folder uploads to the new folder. Stored in no-backup storage.
+     */
     private class Mark(context: Context) {
-        private val file = AtomicFile(File(context.noBackupFilesDir, "camera-mark.json"))
+        private val file = AtomicFile(File(context.noBackupFilesDir, MARK_FILE))
 
-        fun read(): Pair<Long, Long> = runCatching {
-            JSONObject(file.readFully().decodeToString()).let { it.getLong("added") to it.getLong("id") }
-        }.getOrDefault(0L to 0L)
+        fun read(folder: String): Pair<Long, Long> = runCatching {
+            JSONObject(file.readFully().decodeToString()).takeIf { it.optString("folder") == folder }?.let { it.getLong("added") to it.getLong("id") }
+        }.getOrNull() ?: (0L to 0L)
 
-        fun write(added: Long, id: Long) {
+        fun write(added: Long, id: Long, folder: String) {
             val out = file.startWrite()
             try {
-                out.write(JSONObject().put("added", added).put("id", id).toString().encodeToByteArray())
+                out.write(JSONObject().put("added", added).put("id", id).put("folder", folder).toString().encodeToByteArray())
                 file.finishWrite(out)
             } catch (e: Exception) {
                 file.failWrite(out)
@@ -128,6 +173,9 @@ class CameraJob : JobService() {
     companion object {
         private const val ID = 2
         private const val MAX_PER_RUN = 200
+
+        /** The mark file. A logout must delete it with the other account data. */
+        const val MARK_FILE = "camera-mark.json"
 
         fun allowed(context: Context, s: CameraUpload): Boolean =
             context.checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED &&
