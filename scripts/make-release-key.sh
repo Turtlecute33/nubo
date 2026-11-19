@@ -5,13 +5,11 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-# The key keeps the first name of the project (Filenza): a new name must not make a new key, because a
-# release with another certificate cannot update the installed app.
 # Absolute: app/build.gradle.kts would resolve a relative path against app/.
-KEYSTORE="${${KEYSTORE:-$HOME/.config/filenza/release.jks}:A}"
-ALIAS="filenza"
-STORE_ITEM="filenza-android-keystore"
-KEY_ITEM="filenza-android-key"
+KEYSTORE="${${KEYSTORE:-$HOME/.config/nubo/release.jks}:A}"
+ALIAS="nubo"
+STORE_ITEM="nubo-android-keystore"
+KEY_ITEM="nubo-android-key"
 
 # A second key would replace the stored password of the first key and sign later releases with
 # a different certificate, which Android refuses as an update. Stop if any part already exists.
@@ -50,7 +48,7 @@ for item in "$STORE_ITEM" "$KEY_ITEM"; do
 done
 
 keytool -genkeypair -v -storetype PKCS12 -keystore "$KEYSTORE" -alias "$ALIAS" \
-  -keyalg EC -groupname secp256r1 -validity 10000 -dname "CN=Filenza" \
+  -keyalg EC -groupname secp256r1 -validity 10000 -dname "CN=nubo" \
   -storepass:env VA_STORE_PASS -keypass:env VA_KEY_PASS > /dev/null
 chmod 600 "$KEYSTORE"
 unset VA_STORE_PASS VA_KEY_PASS

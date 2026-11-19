@@ -7,8 +7,8 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 
 - nubo is an unofficial Android client for [Filen](https://filen.io) cloud storage.
 - Name: nubo (Esperanto for "cloud"), written in lower case. Package and app ID `app.nubo`. Licence GPL-3.0.
-  The first name was Filenza; the owner changed it on 2026-11-19, before the first public release. The
-  release key keeps the first name (`scripts/make-release-key.sh`).
+- Release key: `~/.config/nubo/release.jks`, alias `nubo`, passwords in the Keychain items `nubo-android-keystore`
+  and `nubo-android-key` (`scripts/make-release-key.sh`). The certificate stays the same for all releases.
 - v1 scope (owner, 2026-11-19): login with two-factor code; browse in a list or a grid with a sort for
   each folder; search; upload; download; new folder; rename; move; trash and restore; favourites;
   recents; transfers; viewers for images, video, audio, text and PDF; app lock; settings.
