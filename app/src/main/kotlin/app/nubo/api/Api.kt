@@ -2,11 +2,16 @@ package app.nubo.api
 
 import app.nubo.crypto.Bytes
 import app.nubo.crypto.hex
+import android.util.JsonReader
+import android.util.JsonToken
+import android.util.MalformedJsonException
 import app.nubo.net.Transport
 import kotlinx.coroutines.delay
 import org.json.JSONException
 import org.json.JSONObject
+import java.io.EOFException
 import java.io.IOException
+import java.io.InputStream
 import java.net.URLEncoder
 
 /**
@@ -69,12 +74,22 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
     private suspend fun call(method: String, url: String, body: ByteArray?, retry: Boolean = true): JSONObject =
         callRaw(method, url, body, retry).optJSONObject("data") ?: JSONObject()
 
+    /**
+     * POST for an answer too large to hold (the whole drive tree, review R-65): [read] gets a reader at the `data`
+     * object while the answer comes in, and keeps only what it needs. No size limit.
+     */
+    suspend fun <T> postLarge(path: String, body: JSONObject, read: (JsonReader) -> T): T = retrying {
+        transport.stream("POST", GATEWAY + path, headers(), body.toString().encodeToByteArray()) { code, input -> envelope(code, input, read) }
+    }
+
     private suspend fun callRaw(method: String, url: String, body: ByteArray?, retry: Boolean = true): JSONObject {
-        val headers = buildMap {
-            put("Content-Type", "application/json")
-            key?.let { put("Authorization", "Bearer $it") }
-        }
+        val headers = headers()
         return if (retry) retrying { parse(transport.send(method, url, headers, body)) } else parse(transport.send(method, url, headers, body))
+    }
+
+    private fun headers() = buildMap {
+        put("Content-Type", "application/json")
+        key?.let { put("Authorization", "Bearer $it") }
     }
 
     /**
@@ -134,7 +149,67 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
         const val CHUNK = 1024 * 1024
 
         private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8)
+
+        /**
+         * Reads the envelope `{status, code, data}` of [postLarge] in one pass. Filen sends `status` first; then the
+         * `data` of a refused call is not read. Bad JSON is "bad_answer" (or "server_error" for a 5xx), as in [parse].
+         */
+        internal fun <T> envelope(code: Int, input: InputStream, read: (JsonReader) -> T): T {
+            var status: Boolean? = null
+            var error = ""
+            var data: T? = null
+            try {
+                val r = JsonReader(input.reader())
+                r.beginObject()
+                while (r.hasNext()) {
+                    when (r.nextName()) {
+                        "status" -> status = when (r.peek()) {
+                            JsonToken.BOOLEAN -> r.nextBoolean()
+                            JsonToken.STRING -> r.nextString() == "true"
+                            else -> false.also { r.skipValue() }
+                        }
+                        "code" -> error = if (r.peek() == JsonToken.STRING) r.nextString() else "".also { r.skipValue() }
+                        "data" -> if (status != false && r.peek() == JsonToken.BEGIN_OBJECT) data = read(r) else r.skipValue()
+                        else -> r.skipValue()
+                    }
+                }
+                r.endObject()
+            } catch (e: Exception) {
+                // A network error in the stream keeps its type (a retry can help); anything else, also JSON that
+                // ends too soon, is a bad answer.
+                if (e is IOException && e !is MalformedJsonException && e !is EOFException) throw e
+                throw ApiException(if (code >= 500) "server_error" else "bad_answer", code)
+            }
+            if (status != true) throw ApiException(error.ifEmpty { "error" }, code)
+            return data ?: throw ApiException("bad_answer", code)
+        }
     }
+}
+
+/** The object at [this] reader as a [JSONObject] of its plain values; nested values are skipped. */
+fun JsonReader.nextObject(): JSONObject {
+    val o = JSONObject()
+    beginObject()
+    while (hasNext()) {
+        val name = nextName()
+        when (peek()) {
+            JsonToken.STRING -> o.put(name, nextString())
+            // Not a whole number: the text (org.json reads it as a number when asked; an infinity cannot fail here).
+            JsonToken.NUMBER -> nextString().let { o.put(name, it.toLongOrNull() ?: it) }
+            JsonToken.BOOLEAN -> o.put(name, nextBoolean())
+            else -> skipValue() // null, or a nested object or array
+        }
+    }
+    endObject()
+    return o
+}
+
+/** Each object of the array at [this] reader; a null instead of the array is an empty array. */
+inline fun JsonReader.eachObject(block: (JSONObject) -> Unit) {
+    if (peek() == JsonToken.NULL) return skipValue()
+    beginArray()
+    while (hasNext()) if (peek() == JsonToken.BEGIN_OBJECT) block(nextObject()) else skipValue()
+    endArray()
 }
 
 /**

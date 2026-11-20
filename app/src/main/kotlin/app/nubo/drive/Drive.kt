@@ -73,14 +73,9 @@ class Drive(
 
     /** Every file and folder under [folder], with no order (research F-65). For search and photos. */
     suspend fun tree(folder: String): List<Item> = guard {
-        val data = api.post("/v3/dir/download", JSONObject().put("uuid", folder).put("skipCache", false))
         val ring = keys()
-        withContext(Dispatchers.Default) {
-            val files = data.optJSONArray("files").objects().mapNotNull { Decode.file(it, Source.Own, ring::decryptMeta) }
-            val dirs = data.optJSONArray("folders").objects().filter { it.optString("parent") != "base" }
-                .mapNotNull { Decode.folder(it, Source.Own, "name", ring::decryptMeta) }
-            dirs + files
-        }
+        // Streamed: a large drive gives more than any answer limit (review R-65); only the items stay in memory.
+        api.postLarge("/v3/dir/download", JSONObject().put("uuid", folder).put("skipCache", false)) { Decode.tree(it, ring::decryptMeta) }
     }
 
     suspend fun usage(): Usage = guard {

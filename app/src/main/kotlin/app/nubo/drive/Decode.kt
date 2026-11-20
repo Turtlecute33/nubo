@@ -1,8 +1,11 @@
 package app.nubo.drive
 
+import android.util.JsonReader
+import app.nubo.api.eachObject
 import app.nubo.api.optText
 import app.nubo.crypto.DataKey
 import org.json.JSONObject
+import java.io.IOException
 
 /**
  * Turns server entries into [Item]s (research F-LIST). [decrypt] opens the metadata: the account keys for own
@@ -59,6 +62,32 @@ object Decode {
             source = source,
         )
     }.getOrNull()
+
+    /**
+     * The `data` of `/v3/dir/download` (research F-65) from [r], one entry at a time: folders first, then files,
+     * with no root folder. More than [MAX_TREE] items fail, before they take all the memory of the app.
+     */
+    fun tree(r: JsonReader, decrypt: (String) -> String): List<Item> {
+        val dirs = ArrayList<Item>()
+        val files = ArrayList<Item>()
+        fun add(list: MutableList<Item>, item: Item?) {
+            if (item == null) return
+            if (dirs.size + files.size >= MAX_TREE) throw IOException("This folder has too many items")
+            list += item
+        }
+        r.beginObject()
+        while (r.hasNext()) {
+            when (r.nextName()) {
+                "files" -> r.eachObject { add(files, file(it, Source.Own, decrypt)) }
+                "folders" -> r.eachObject { if (it.optString("parent") != "base") add(dirs, folder(it, Source.Own, "name", decrypt)) }
+                else -> r.skipValue()
+            }
+        }
+        r.endObject()
+        return dirs + files
+    }
+
+    const val MAX_TREE = 200_000
 
     /** True for a UUID: only hex digits and dashes, so it is safe in a file path (`offline/<uuid>`). */
     fun isUuid(text: String): Boolean = UUID.matches(text)

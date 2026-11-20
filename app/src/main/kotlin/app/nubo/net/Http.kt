@@ -16,10 +16,14 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FilterInputStream
 import java.io.IOException
+import java.io.InputStream
+import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicLong
@@ -40,6 +44,16 @@ interface Transport {
         body: ByteArray? = null,
         maxBytes: Int = MAX_BODY,
     ): Response
+
+    /**
+     * Like [send], for an answer too large to hold (the whole drive tree, review R-65): [read] gets the status and
+     * the body while it comes in, on an IO thread, with no size limit. The default reads the whole answer first
+     * (for the scripted fake of the tests).
+     */
+    suspend fun <T> stream(method: String, url: String, headers: Map<String, String>, body: ByteArray?, read: (Int, InputStream) -> T): T {
+        val r = send(method, url, headers, body, Int.MAX_VALUE)
+        return read(r.code, r.body.inputStream())
+    }
 
     class Response(val code: Int, val body: ByteArray) {
         val text: String get() = body.decodeToString()
@@ -106,6 +120,64 @@ class Http(private val context: Context) : Transport {
         } catch (e: HttpException) {
             throw readable(e)
         }
+    }
+
+    /**
+     * Through the [HttpURLConnection] of the same engine: its stream reads the answer only as fast as [read] takes
+     * it. The same idle limit as [send]; a cancel interrupts the blocked read.
+     */
+    override suspend fun <T> stream(method: String, url: String, headers: Map<String, String>, body: ByteArray?, read: (Int, InputStream) -> T): T {
+        requireHttps(url)
+        return try {
+            withContext(Dispatchers.IO) {
+                withIdleTimeout { activity ->
+                    val engine = acquire()
+                    try {
+                        val c = engine.openConnection(URI(url).toURL()) as HttpURLConnection
+                        try {
+                            runInterruptible { exchange(c, method, headers, body, activity, read) }
+                        } finally {
+                            c.disconnect()
+                        }
+                    } finally {
+                        release()
+                    }
+                }
+            }
+        } catch (e: HttpException) {
+            throw readable(e)
+        }
+    }
+
+    private fun <T> exchange(
+        c: HttpURLConnection,
+        method: String,
+        headers: Map<String, String>,
+        body: ByteArray?,
+        activity: AtomicLong,
+        read: (Int, InputStream) -> T,
+    ): T {
+        c.requestMethod = method
+        c.instanceFollowRedirects = false
+        c.useCaches = false
+        headers.forEach(c::setRequestProperty)
+        if (body != null) {
+            c.doOutput = true
+            c.setFixedLengthStreamingMode(body.size)
+            c.outputStream.use { it.write(body) }
+        }
+        val code = c.responseCode
+        if (code in 300..399) throw IOException("Unexpected redirect")
+        activity.set(SystemClock.elapsedRealtime())
+        val input = (if (code >= 400) c.errorStream else c.inputStream) ?: InputStream.nullInputStream()
+        return Watched(input, activity).use { read(code, it) }
+    }
+
+    /** Each read counts as activity for the idle limit. */
+    private class Watched(input: InputStream, private val activity: AtomicLong) : FilterInputStream(input) {
+        override fun read(): Int = super.read().also { activity.set(SystemClock.elapsedRealtime()) }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { activity.set(SystemClock.elapsedRealtime()) }
     }
 
     /**
