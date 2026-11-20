@@ -125,7 +125,8 @@ private fun UsageCard(usage: Usage?, error: String?, onRetry: () -> Unit) {
             } else {
                 Spacer(Modifier.height(14.dp))
                 val fraction = if (usage == null || usage.max <= 0) 0f else (usage.used.toFloat() / usage.max).coerceIn(0f, 1f)
-                LinearWavyProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                // A fixed value: the wave stands still, so the screen does not draw each frame while it shows.
+                LinearWavyProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), waveSpeed = 0.dp)
             }
         }
     }

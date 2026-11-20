@@ -229,7 +229,8 @@ private fun StorageWarning(u: Usage) {
             Spacer(Modifier.height(4.dp))
             Text("${Format.size(u.used)} of ${Format.size(u.max)} used", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(12.dp))
-            LinearWavyProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+            // A fixed value: the wave stands still, so the screen does not draw each frame while it shows.
+            LinearWavyProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), waveSpeed = 0.dp)
         }
     }
 }
