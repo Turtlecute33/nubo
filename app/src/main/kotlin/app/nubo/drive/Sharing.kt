@@ -10,7 +10,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -39,6 +41,13 @@ data class ShareUser(val id: Long, val email: String)
 class Sharing internal constructor(private val drive: Drive) {
     private val api get() = drive.api
 
+    /**
+     * The copies to shares and links, and the removal of a share or a link, one at a time: a removal must not
+     * run between the read of the receivers and the copies, or a receiver that the user just removed gets the
+     * new items.
+     */
+    private val changes = Mutex()
+
     // ---- propagation (F-53) ----
 
     /**
@@ -61,37 +70,41 @@ class Sharing internal constructor(private val drive: Drive) {
     }
 
     /** Adds [items] (and everything inside the folders among them) to the shares and links of [parent]. */
-    suspend fun propagate(parent: String, items: List<Item>) = coroutineScope {
-        val links = async { api.post("/v3/item/linked", JSONObject().put("uuid", parent)) }
-        val shared = async { api.post("/v3/item/shared", JSONObject().put("uuid", parent)) }
-        val linkRows = links.await().optJSONArray("links").objects()
-        val userRows = shared.await().optJSONArray("users").objects()
-        if (linkRows.isEmpty() && userRows.isEmpty()) return@coroutineScope
-        val all = withContext(Dispatchers.IO) { items + items.filter { it.folder }.flatMap { drive.tree(it.uuid) } }
-        val ring = drive.keys()
-        for (link in linkRows) addToLink(link.getString("linkUUID"), link.getString("linkKey"), ring, all, rootParent = null)
-        for (user in userRows) shareTo(user.getString("email"), user.getString("publicKey"), all, root = null)
+    suspend fun propagate(parent: String, items: List<Item>) = changes.withLock {
+        coroutineScope {
+            val links = async { api.post("/v3/item/linked", JSONObject().put("uuid", parent)) }
+            val shared = async { api.post("/v3/item/shared", JSONObject().put("uuid", parent)) }
+            val linkRows = links.await().optJSONArray("links").objects()
+            val userRows = shared.await().optJSONArray("users").objects()
+            if (linkRows.isEmpty() && userRows.isEmpty()) return@coroutineScope
+            val all = withContext(Dispatchers.IO) { items + items.filter { it.folder }.flatMap { drive.tree(it.uuid) } }
+            val ring = drive.keys()
+            for (link in linkRows) addToLink(link.getString("linkUUID"), link.getString("linkKey"), ring, all, rootParent = null)
+            for (user in userRows) shareTo(user.getString("email"), user.getString("publicKey"), all, root = null)
+        }
     }
 
     /** After a rename: the new name goes to every share and link that holds the item. */
-    suspend fun renamed(item: Item) = coroutineScope {
-        val ring = drive.keys()
-        val links = async { api.post("/v3/item/linked", JSONObject().put("uuid", item.uuid)) }
-        val shared = async { api.post("/v3/item/shared", JSONObject().put("uuid", item.uuid)) }
-        val meta = item.metaJson()
-        for (link in links.await().optJSONArray("links").objects()) {
-            val key = Links.metaKey(ring.decryptMeta(link.getString("linkKey")))
-            api.post(
-                "/v3/item/linked/rename",
-                JSONObject().put("uuid", item.uuid).put("linkUUID", link.getString("linkUUID")).put("metadata", key.encrypt(meta)),
-            )
-        }
-        for (user in shared.await().optJSONArray("users").objects()) {
-            api.post(
-                "/v3/item/shared/rename",
-                JSONObject().put("uuid", item.uuid).put("receiverId", user.optLong("id"))
-                    .put("metadata", Keyring.encryptFor(user.getString("publicKey"), meta)),
-            )
+    suspend fun renamed(item: Item) = changes.withLock {
+        coroutineScope {
+            val ring = drive.keys()
+            val links = async { api.post("/v3/item/linked", JSONObject().put("uuid", item.uuid)) }
+            val shared = async { api.post("/v3/item/shared", JSONObject().put("uuid", item.uuid)) }
+            val meta = item.metaJson()
+            // RSA takes at most 382 bytes (F-27): encrypt for every user before the first call, so that a name too
+            // long for a share changes no copy at all (as in [shareTo], review 18).
+            val users = shared.await().optJSONArray("users").objects()
+                .map { it.optLong("id") to Keyring.encryptFor(it.getString("publicKey"), meta) }
+            for (link in links.await().optJSONArray("links").objects()) {
+                val key = Links.metaKey(ring.decryptMeta(link.getString("linkKey")))
+                api.post(
+                    "/v3/item/linked/rename",
+                    JSONObject().put("uuid", item.uuid).put("linkUUID", link.getString("linkUUID")).put("metadata", key.encrypt(meta)),
+                )
+            }
+            for ((id, sealed) in users) {
+                api.post("/v3/item/shared/rename", JSONObject().put("uuid", item.uuid).put("receiverId", id).put("metadata", sealed))
+            }
         }
     }
 
@@ -102,13 +115,21 @@ class Sharing internal constructor(private val drive: Drive) {
             val o = api.post("/v3/dir/link/status", JSONObject().put("uuid", item.uuid))
             if (!o.optBoolean("exists")) return@guard LinkState(false)
             val key = drive.keys().decryptMeta(o.getString("key"))
-            LinkState(true, o.getString("uuid"), Links.url(true, o.getString("uuid"), key), o.optText("expirationText", "never"), hasPassword(o))
+            val uuid = linkUuid(o)
+            LinkState(true, uuid, Links.url(true, uuid, key), o.optText("expirationText", "never"), hasPassword(o))
         } else {
             val o = api.post("/v3/file/link/status", JSONObject().put("uuid", item.uuid))
             if (!o.optBoolean("enabled")) return@guard LinkState(false)
-            LinkState(true, o.getString("uuid"), Links.url(false, o.getString("uuid"), item.key), o.optText("expirationText", "never"), hasPassword(o))
+            val uuid = linkUuid(o)
+            LinkState(true, uuid, Links.url(false, uuid, item.key), o.optText("expirationText", "never"), hasPassword(o))
         }
     }
+
+    /**
+     * The link UUID from the server. It goes into the URL before the key: a "%23<key>" in it would make
+     * [Links.parse] read a key of the server's choice.
+     */
+    private fun linkUuid(o: JSONObject): String = o.getString("uuid").takeIf(Decode::isUuid) ?: throw ApiException("bad_answer", 0)
 
     /** v3 file keys do not fit the link URL (research F-77): no file links for them. */
     fun canLink(item: Item): Boolean = item.folder || item.key.length == 32
@@ -146,17 +167,19 @@ class Sharing internal constructor(private val drive: Drive) {
     }
 
     suspend fun removeLink(item: Item) = drive.guard {
-        val state = linkState(item)
-        if (!state.enabled) return@guard
-        drive.lock.write {
-            if (item.folder) {
-                api.post("/v3/dir/link/remove", JSONObject().put("uuid", item.uuid))
-            } else {
-                api.post(
-                    "/v3/file/link/edit",
-                    JSONObject().put("uuid", state.linkUuid).put("fileUUID", item.uuid).put("expiration", "never").put("password", "empty")
-                        .put("passwordHashed", "empty").put("salt", Links.newSalt()).put("downloadBtn", false).put("type", "disable"),
-                )
+        changes.withLock {
+            val state = linkState(item)
+            if (!state.enabled) return@guard
+            drive.lock.write {
+                if (item.folder) {
+                    api.post("/v3/dir/link/remove", JSONObject().put("uuid", item.uuid))
+                } else {
+                    api.post(
+                        "/v3/file/link/edit",
+                        JSONObject().put("uuid", state.linkUuid).put("fileUUID", item.uuid).put("expiration", "never").put("password", "empty")
+                            .put("passwordHashed", "empty").put("salt", Links.newSalt()).put("downloadBtn", false).put("type", "disable"),
+                    )
+                }
             }
         }
         drive.invalidate(Listing.Links)
@@ -206,7 +229,7 @@ class Sharing internal constructor(private val drive: Drive) {
     }
 
     suspend fun stopSharing(item: Item, user: ShareUser) = drive.guard {
-        api.post("/v3/item/shared/out/remove", JSONObject().put("uuid", item.uuid).put("receiverId", user.id))
+        changes.withLock { api.post("/v3/item/shared/out/remove", JSONObject().put("uuid", item.uuid).put("receiverId", user.id)) }
         drive.invalidate(Listing.SharedOut)
     }
 

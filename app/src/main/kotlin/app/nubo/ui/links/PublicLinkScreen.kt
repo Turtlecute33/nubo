@@ -257,13 +257,13 @@ private fun PasswordForm(password: String, onPassword: (String) -> Unit, error: 
 
 /** One open link: what it opened and the folder stack. In memory only. */
 @Stable
-private class LinkSession {
+internal class LinkSession {
     var opened by mutableStateOf<Opened?>(null)
     val stack = mutableStateListOf<Item>()
 }
 
 /** The last [MAX] open links of this process. Memory only; the key of a link never goes to the disk. */
-private object LinkSessions {
+internal object LinkSessions {
     private const val MAX = 4
     private val map = object : LinkedHashMap<String, LinkSession>(MAX, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, LinkSession>) = size > MAX
@@ -271,6 +271,10 @@ private object LinkSessions {
 
     @Synchronized
     fun get(link: Links.Parsed): LinkSession = map.getOrPut(link.uuid + ":" + link.key) { LinkSession() }
+
+    /** At logout: an opened link holds its password hash and keys, so the next user would not need the password. */
+    @Synchronized
+    fun clear() = map.clear()
 }
 
 /** User text for a link that does not open. Never shows the link or its key. */

@@ -31,7 +31,7 @@ class Uploader(private val drive: Drive) {
 
     suspend fun upload(parent: String, src: UploadSource, progress: (Long) -> Unit): Item = drive.guard { send(parent, src, progress) }
 
-    /** On [Dispatchers.Default]: the BLAKE3 hash and the reads run there, not on the caller's thread (review 42). */
+    /** Not on the caller's thread (review 42): the reads and the BLAKE3 hash run on IO, the encryption on Default. */
     private suspend fun send(parent: String, src: UploadSource, progress: (Long) -> Unit): Item = withContext(Dispatchers.Default) {
         val ring = drive.keys()
         val name = NameRules.clean(src.name)
@@ -45,26 +45,30 @@ class Uploader(private val drive: Drive) {
         var size = 0L
         var count = 0
         val jobs = ArrayList<kotlinx.coroutines.Deferred<Unit>>()
-        withContext(Dispatchers.IO) { src.open() }.use { input ->
-            while (true) {
-                val buf = ByteArray(Api.CHUNK)
-                val n = withContext(Dispatchers.IO) { input.readFully(buf) }
-                if (n == 0) break
-                hasher.update(buf, 0, n)
-                size += n
-                val index = count++
-                gate.acquire() // reads stay at most PARALLEL chunks ahead of the network
-                jobs += async(Dispatchers.Default) {
-                    try {
-                        val data = fileKey.encryptChunk(buf, n)
-                        val where = api.uploadChunk(uuid, index, parent, uploadKey, data)
-                        synchronized(jobs) { if (place == null) place = where }
-                        progress(sent.addAndGet(n.toLong()))
-                    } finally {
-                        gate.release()
+        // The stream is opened in the block that closes it: a cancel at the end of a withContext around the open
+        // alone would drop the open stream.
+        withContext(Dispatchers.IO) {
+            src.open().use { input ->
+                while (true) {
+                    val buf = ByteArray(Api.CHUNK)
+                    val n = input.readFully(buf)
+                    if (n == 0) break
+                    hasher.update(buf, 0, n)
+                    size += n
+                    val index = count++
+                    gate.acquire() // reads stay at most PARALLEL chunks ahead of the network
+                    jobs += async(Dispatchers.Default) {
+                        try {
+                            val data = fileKey.encryptChunk(buf, n)
+                            val where = api.uploadChunk(uuid, index, parent, uploadKey, data)
+                            synchronized(jobs) { if (place == null) place = where }
+                            progress(sent.addAndGet(n.toLong()))
+                        } finally {
+                            gate.release()
+                        }
                     }
+                    if (n < Api.CHUNK) break
                 }
-                if (n < Api.CHUNK) break
             }
         }
         jobs.awaitAll()
@@ -134,6 +138,9 @@ class Uploader(private val drive: Drive) {
             while (n < buf.size) {
                 val r = read(buf, n, buf.size - n)
                 if (r < 0) break
+                // A blocking stream never gives 0. A non-blocking pipe from another app does, and this loop would
+                // spin with no end and no way to cancel it.
+                if (r == 0) throw IOException("The file cannot be read")
                 n += r
             }
             return n

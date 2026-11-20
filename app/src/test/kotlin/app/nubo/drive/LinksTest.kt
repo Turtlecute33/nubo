@@ -149,6 +149,46 @@ class LinksTest {
         )
         // 512 hex characters: Argon2id, the same 64 bytes as the v3 login derivation.
         assertEquals(kat.getValue("V3_DERIVED"), Links.hashPassword(kat.getValue("V3_PASSWORD"), kat.getValue("V3_SALT")))
+        // Any other salt is refused. With the 256-hex salt of a v2 login, PBKDF2 is the login derivation, and the
+        // hash would carry the master key of a user who types the account password.
+        assertFailsWith<ApiException> { Links.hashPassword("password", "ab".repeat(128)) }
+        assertFailsWith<ApiException> { Links.hashPassword("password", "short") }
+    }
+
+    @Test
+    fun aKeyInThePathAndInTheFragmentIsRefused() {
+        // A link UUID "<uuid>%23<key>" from the server would put a key of its choice before the real one.
+        assertNull(Links.parse(Links.url(true, "$uuid%23${"A".repeat(32)}", key)))
+        assertNull(Links.parse("https://app.filen.io/f/$uuid%23$hexKey#$hexKey"))
+    }
+
+    @Test
+    fun aFileLinkWithABadSizeIsRefused() = runTest {
+        val fields = Ops.fieldKey(DataKey.parse(key), 2)
+        // Negative: passes the size limits of the viewers. Not a number: was 0, an empty download that looks done.
+        for (size in listOf("-2147483649", "big")) {
+            val fake = FakeTransport { r ->
+                when (r.path) {
+                    "/v3/file/link/password" -> ok(JSONObject().put("hasPassword", false).put("salt", ""))
+                    else -> ok(
+                        JSONObject().put("uuid", uuid).put("name", fields.encrypt("a.jpg")).put("size", fields.encrypt(size))
+                            .put("mime", fields.encrypt("image/jpeg")).put("region", "de-1").put("bucket", "b").put("chunks", 1).put("version", 2),
+                    )
+                }
+            }
+            val link = Links.Parsed(folder = false, uuid = uuid, key = key)
+            assertEquals("bad_answer", assertFailsWith<ApiException>(size) { PublicLinks(Api(fake)).open(link, null) }.code)
+        }
+    }
+
+    @Test
+    fun badFolderLinkMetadataGivesTheDefaultName() = runTest {
+        val root = "1f8c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b"
+        // Deep nesting overflows the stack of a recursive JSON parser: an Error, which nothing else catches.
+        val meta = Links.metaKey(key).encrypt("{\"name\":" + "[".repeat(100_000))
+        val fake = FakeTransport { ok(JSONObject().put("hasPassword", false).put("parent", root).put("metadata", meta)) }
+        val opened = assertIs<Opened.Folder>(PublicLinks(Api(fake)).open(Links.Parsed(folder = true, uuid = uuid, key = key), null))
+        assertEquals("Shared folder", opened.root.name)
     }
 
     @Test

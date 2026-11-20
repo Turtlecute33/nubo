@@ -17,13 +17,15 @@ object Decode {
         DataKey.parse(key) // reject a bad key now, not at download time
         val name = meta.getString("name")
         if (!validName(name)) return null
+        // A negative size would pass the size limits of the viewers and wrap in toInt().
+        val size = meta.optLongLoose("size").takeIf { it >= 0 } ?: o.optLong("size").takeIf { it >= 0 } ?: return null
         Item(
             uuid = uuid(o),
             parent = o.optText("parent"),
             name = name,
             folder = false,
-            size = meta.optLongLoose("size").takeIf { it >= 0 } ?: o.optLong("size"),
-            mime = meta.optText("mime"),
+            size = size,
+            mime = mime(meta.optText("mime")),
             modified = ms(meta.optLongLoose("lastModified")).takeIf { it > 0 } ?: ms(o.optLong("timestamp")),
             created = ms(meta.optLongLoose("creation")),
             uploaded = ms(o.optLong("timestamp")),
@@ -66,13 +68,26 @@ object Decode {
 
     private val UUID = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
-    /** A name that is safe as a file name on the phone: no path parts, no control characters. */
+    /**
+     * A name that is safe as a file name on the phone and on the screen: no path parts, no control characters,
+     * and no bidi controls: a right-to-left override (U+202E) can make an ".apk" name read as a ".png" one.
+     */
     fun validName(name: String): Boolean =
-        name.isNotBlank() && name != "." && name != ".." && name.length <= 1024 && name.none { it == '/' || it == '\\' || it < ' ' }
+        name.isNotBlank() && name != "." && name != ".." && name.length <= 1024 &&
+            name.none { it == '/' || it == '\\' || it.isISOControl() || it in BIDI_CONTROLS }
+
+    /** U+202A..U+202E (embeddings, overrides) and U+2066..U+2069 (isolates). */
+    private val BIDI_CONTROLS = ('\u202A'..'\u202E') + ('\u2066'..'\u2069')
+
+    /** A MIME type as other apps take it, or "" (then the type comes from the name). A sharer could send megabytes. */
+    fun mime(text: String): String = text.takeIf { MIME.matches(it) }.orEmpty()
+
+    private val MIME = Regex("^[A-Za-z0-9][\\w!#$&^.+-]{0,126}/[A-Za-z0-9][\\w!#$&^.+-]{0,126}$")
 
     /** Filen mixes seconds and milliseconds. Like the official SDKs: the reading that is nearer to now wins. */
     fun ms(t: Long): Long {
         if (t <= 0) return 0
+        if (t > Long.MAX_VALUE / 1000) return t // no reading in seconds: t * 1000 would wrap
         val now = System.currentTimeMillis()
         return if (kotlin.math.abs(now - t) < kotlin.math.abs(now - t * 1000)) t else t * 1000
     }

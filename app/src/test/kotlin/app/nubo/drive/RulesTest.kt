@@ -12,6 +12,7 @@ import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -32,6 +33,40 @@ class RulesTest {
         assertEquals(now, Decode.ms(now))
         assertEquals(now / 1000 * 1000, Decode.ms(now / 1000))
         assertEquals(0, Decode.ms(0))
+        // Too large for seconds: t * 1000 must not wrap to a time near now.
+        assertEquals(Long.MAX_VALUE / 100, Decode.ms(Long.MAX_VALUE / 100))
+    }
+
+    @Test
+    fun namesWithControlsThatReorderTextAreRefused() {
+        // A right-to-left override shows "x<RLO>gnp.apk" as "xkpa.png"; the isolates do the same.
+        for (bad in listOf("x\u202Egnp.apk", "a\u202Ab", "a\u2066b", "a\u2069b", "del\u007F", "c1\u0085")) {
+            assertFalse(Decode.validName(bad), bad)
+        }
+        // Joiners in emoji, right-to-left letters and a real U+FFFD are fine.
+        for (good in listOf("family 👨\u200D👩.jpg", "שלום.txt", "report \uFFFD.txt")) {
+            assertTrue(Decode.validName(good), good)
+        }
+    }
+
+    @Test
+    fun sizesAndTypesOfOtherUsersAreChecked() {
+        val account = MasterKey("0123456789abcdefghijklmnopqrstuv".encodeToByteArray())
+        val noSize = JSONObject().put("name", "a.jpg").put("key", "abcdefghijklmnopqrstuvwxyzABCDEF")
+        fun decode(meta: JSONObject, size: Long) = Decode.file(
+            JSONObject().put("uuid", "0f8c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b").put("metadata", account.encrypt(meta.toString())).put("size", size),
+            Source.Own,
+            account::decrypt,
+        )
+        // With no size in the metadata the row's size counts: a negative one would pass the size limits.
+        assertNull(decode(noSize, -2_147_483_649L))
+        assertEquals(5, decode(noSize, 5)!!.size)
+        // A MIME type goes into intents: megabytes of it would crash "Open with" (a too large Binder transaction).
+        assertEquals("", decode(JSONObject(noSize.toString()).put("mime", "image/" + "x".repeat(100_000)), 5)!!.mime)
+        assertEquals("image/jpeg", decode(JSONObject(noSize.toString()).put("mime", "image/jpeg"), 5)!!.mime)
+        val docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        assertEquals(docx, Decode.mime(docx))
+        for (bad in listOf("", "image", "text/plain\n", "a/b/c", "text/plain; charset=utf-8")) assertEquals("", Decode.mime(bad), bad)
     }
 
     @Test

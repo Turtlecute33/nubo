@@ -31,6 +31,10 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
     private var entries = LinkedHashMap<String, Item>()
     private val _uuids = MutableStateFlow<Set<String>>(emptySet())
 
+    /** The file key of each copy, by UUID, for [encrypted] with no lock. */
+    @Volatile
+    private var keys: Map<String, String> = emptyMap()
+
     /** The UUIDs of the offline files, for the badges in lists. */
     val uuids: StateFlow<Set<String>> = _uuids.asStateFlow()
 
@@ -52,20 +56,23 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
         // Downloads that a process death stopped. No add runs yet: each add reads the index first.
         dir.listFiles { f -> f.name.endsWith(TMP) }?.forEach { it.deleteRecursively() }
         loaded = true
-        _uuids.value = entries.keys.toSet()
+        publish()
     }
 
     override suspend fun encrypted(item: Item, index: Int): ByteArray? {
-        if (item.uuid !in _uuids.value) return null
+        // Only the copy of this version: a new version of the file (the same UUID, another key) comes from the network.
+        if (keys[item.uuid] != item.key) return null
         val f = File(dir, "${item.uuid}/$index")
         return withContext(Dispatchers.IO) { if (f.isFile) f.readBytes() else null }
     }
 
     /**
-     * Stores all chunks of [item]. [fetch] gives the encrypted chunk; the GCM check happens at each read. A
-     * new version of the file (another key) replaces the old copy. The chunks go to a temporary folder first,
-     * so that the old copy stays good until the new one is complete. A file that is offline with this key, or
-     * that another add downloads now, is skipped (review 44).
+     * Stores all chunks of [item]. [fetch] gives the encrypted chunk. The whole file is checked like a download
+     * (each chunk's GCM, the size, the BLAKE3 hash): a damaged or reordered chunk from the server is never kept,
+     * where it would come before the good network copy at every read. A new version of the file (another key)
+     * replaces the old copy. The chunks go to a temporary folder first, so that the old copy stays good until
+     * the new one is complete. A file that is offline with this key, or that another add downloads now, is
+     * skipped (review 44).
      */
     suspend fun add(item: Item, fetch: suspend (Int) -> ByteArray, progress: (Int) -> Unit) {
         require(!item.folder)
@@ -79,11 +86,14 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
                 tmp.mkdirs()
             }
             try {
+                val check = Content.Check(item)
                 for (i in 0 until count) {
                     val data = fetch(i)
+                    check.update(Content.decrypt(item, data))
                     withContext(Dispatchers.IO) { File(tmp, "$i").writeBytes(data) }
                     progress(i + 1)
                 }
+                check.finish()
                 mutex.withLock {
                     withContext(Dispatchers.IO) {
                         val target = File(dir, item.uuid)
@@ -113,12 +123,15 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
     /** Bytes on the disk. */
     suspend fun size(): Long = withContext(Dispatchers.IO) { dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() } }
 
-    /** After a logout: every file and the index. */
-    fun clear() {
-        dir.deleteRecursively()
+    /**
+     * After a logout: every file and the index. In the lock: a [read] that runs now would bring the old index
+     * back after the wipe.
+     */
+    suspend fun clear() = mutex.withLock {
+        withContext(Dispatchers.IO) { dir.deleteRecursively() }
         entries = LinkedHashMap()
         loaded = false
-        _uuids.value = emptySet()
+        publish()
     }
 
     private suspend fun save() = withContext(Dispatchers.IO) {
@@ -133,7 +146,13 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
             index.failWrite(out)
             throw e
         }
-        _uuids.value = entries.keys.toSet()
+        publish()
+    }
+
+    /** Shows [entries] to the readers with no lock: the badges and [encrypted]. */
+    private fun publish() {
+        keys = entries.mapValues { it.value.key }
+        _uuids.value = keys.keys
     }
 
     private companion object {

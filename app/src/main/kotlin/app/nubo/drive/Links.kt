@@ -1,5 +1,6 @@
 package app.nubo.drive
 
+import app.nubo.api.ApiException
 import app.nubo.crypto.Bytes
 import app.nubo.crypto.DataKey
 import app.nubo.crypto.Kdf
@@ -60,6 +61,9 @@ object Links {
             path.size == 2 && path[0] in setOf("f", "d") -> {
                 // Some apps send the key after an encoded '#' (%23) in the path, not in the fragment.
                 val inPath = path[1].indexOf("%23", ignoreCase = true)
+                // A key in both places is not a link that any client writes: the path key could have come in with
+                // a link UUID from the server, and the real key is in the fragment. Refuse it.
+                if (inPath >= 0 && fragment.isNotEmpty()) return null
                 val id = if (inPath >= 0) path[1].substring(0, inPath) else path[1]
                 Triple(if (path[0] == "d") "folder" else "file", id, decode(if (inPath >= 0) path[1].substring(inPath + 3) else fragment))
             }
@@ -87,13 +91,17 @@ object Links {
 
     /**
      * The hashed link password (research F-76). No password: the text "empty". The salt tells the version:
-     * 512 hex characters = Argon2id, 32 characters = PBKDF2, none = the old SHA-1/SHA-512 hash.
+     * 512 hex characters = Argon2id, 32 characters = PBKDF2, none = the old SHA-1/SHA-512 hash. The salt comes
+     * from the server, and any other salt is refused: with the 256-hex salt of a v2 login, PBKDF2 here is the
+     * login derivation, and the hash sent back would hold the master key of a user who types the account
+     * password (filen-rs refuses these salts too).
      */
     fun hashPassword(password: String?, salt: String): String = when {
         password.isNullOrEmpty() -> NO_PASSWORD
         salt.length == 512 && salt.isHex() -> Kdf.argon2id(password.encodeToByteArray(), salt.unhex()).hex()
-        salt.isNotEmpty() -> Kdf.pbkdf2Sha512(password.encodeToByteArray(), salt.encodeToByteArray(), 200_000, 64).hex()
-        else -> Names.v2Hash(password.encodeToByteArray())
+        salt.length == 32 -> Kdf.pbkdf2Sha512(password.encodeToByteArray(), salt.encodeToByteArray(), 200_000, 64).hex()
+        salt.isEmpty() -> Names.v2Hash(password.encodeToByteArray())
+        else -> throw ApiException("bad_answer", 0)
     }
 
     /** A new link salt: 256 random bytes as hex (the current form). */

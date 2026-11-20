@@ -16,7 +16,8 @@ import android.system.OsConstants
  * closes the descriptor. DESIGN §7.
  */
 object ProxyFd {
-    fun open(context: Context, reader: ChunkReader): ParcelFileDescriptor {
+    /** [released] runs once, when the descriptor closes (or does not open). */
+    fun open(context: Context, reader: ChunkReader, released: () -> Unit = {}): ParcelFileDescriptor {
         val thread = HandlerThread("nubo-proxy").apply { start() }
         val callback = object : ProxyFileDescriptorCallback() {
             override fun onGetSize(): Long = reader.size
@@ -30,6 +31,7 @@ object ProxyFd {
 
             override fun onRelease() {
                 thread.quitSafely()
+                released()
             }
         }
         return try {
@@ -37,6 +39,7 @@ object ProxyFd {
                 .openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, callback, Handler(thread.looper))
         } catch (e: Exception) {
             thread.quitSafely()
+            released()
             throw e
         }
     }

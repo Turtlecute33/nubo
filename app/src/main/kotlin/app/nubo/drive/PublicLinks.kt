@@ -41,16 +41,19 @@ class PublicLinks(private val api: Api) {
             val fields = Ops.fieldKey(key, version)
             val name = fields.decrypt(o.getString("name"))
             val uuid = o.getString("uuid")
+            // A size that does not parse would give an empty download that looks done; a negative one passes the
+            // size limits of the viewers.
+            val size = fields.decrypt(o.getString("size")).toLongOrNull()?.takeIf { it >= 0 }
             // The UUID is a part of file paths (review 60).
-            if (!Decode.validName(name) || !Decode.isUuid(uuid)) throw ApiException("bad_answer", 0)
+            if (!Decode.validName(name) || !Decode.isUuid(uuid) || size == null) throw ApiException("bad_answer", 0)
             Opened.File(
                 Item(
                     uuid = uuid,
                     parent = "",
                     name = name,
                     folder = false,
-                    size = fields.decrypt(o.getString("size")).toLongOrNull() ?: 0,
-                    mime = runCatching { fields.decrypt(o.getString("mime")) }.getOrDefault(""),
+                    size = size,
+                    mime = Decode.mime(runCatching { fields.decrypt(o.getString("mime")) }.getOrDefault("")),
                     modified = Decode.ms(o.optLong("timestamp")),
                     uploaded = Decode.ms(o.optLong("timestamp")),
                     key = link.key,
@@ -71,8 +74,12 @@ class PublicLinks(private val api: Api) {
         val key = Links.metaKey(link.key)
         val rootUuid = info.getString("parent")
         if (!Decode.isUuid(rootUuid)) throw ApiException("bad_answer", 0) // a part of file paths (review 60)
-        val meta = withContext(Dispatchers.Default) { JSONObject(key.decrypt(info.getString("metadata"))) }
-        val name = meta.optText("name").takeIf(Decode::validName) ?: "Shared folder"
+        val name = withContext(Dispatchers.Default) {
+            val meta = key.decrypt(info.getString("metadata")) // a wrong key in the link fails here
+            // The link creator wrote this JSON. Bad JSON gives the default name, also deep nesting, which overflows
+            // the stack of the parser (an Error, which nothing else catches).
+            runCatching { JSONObject(meta).optText("name") }.getOrNull()
+        }?.takeIf(Decode::validName) ?: "Shared folder"
         val folderLink = FolderLink(link.uuid, link.key, hashed)
         // A wrong password shows at the first listing; check it now, so that the user can try again here.
         if (info.optBoolean("hasPassword")) {

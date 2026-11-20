@@ -138,14 +138,14 @@ internal object MetaV1 {
     }
 
     /** A v1 file chunk. The checks follow the official SDKs, which guess the form from the first bytes. */
-    fun decryptChunk(key: ByteArray, data: ByteArray): ByteArray {
+    fun decryptChunk(key: ByteArray, data: ByteArray): ByteArray = guard {
         if (data.size < 16) throw GeneralSecurityException("Too short")
         val first = data.copyOf(16)
         val ascii = first.decodeToString()
         val b64 = Bytes.b64(first)
         val salted = ascii.startsWith("Salted_") || b64.startsWith("Salted_")
         val opensslForm = salted || ascii.startsWith("U2FsdGVk") || b64.startsWith("U2FsdGVk")
-        return when {
+        when {
             opensslForm && !salted -> salted(key, Bytes.unb64(data.decodeToString()))
             opensslForm -> salted(key, data)
             else -> cbc(key, key.copyOf(16), data, 0)

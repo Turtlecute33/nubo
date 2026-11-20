@@ -40,11 +40,23 @@ object SecretClip {
     }
 
     /**
-     * Call when a window of the app gets the focus. [returned]: the app was in the background before, so the
-     * user pasted the link or does not need it now. Not at each focus: a closed sheet gives the focus back too.
+     * True from a stop of the app (not a rotation) to its next focus. Kept here, not in the activity: Android
+     * can make a new activity while the app is in the background.
      */
-    fun onFocus(context: Context, returned: Boolean) {
-        if (returned || due) clear(context.applicationContext)
+    private var away = false
+
+    /** Call when the app goes to the background. */
+    fun onBackground() {
+        away = true
+    }
+
+    /**
+     * Call when a window of the app gets the focus. After [onBackground] the user pasted the link or does not
+     * need it now. Not at each focus: a closed sheet gives the focus back too.
+     */
+    fun onFocus(context: Context) {
+        if (away || due) clear(context.applicationContext)
+        away = false
     }
 
     private fun clear(context: Context) {

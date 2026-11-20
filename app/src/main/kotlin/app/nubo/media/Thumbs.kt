@@ -108,9 +108,12 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
         FileType.IMAGE -> {
             val bytes = content.bytes(item, MAX_IMAGE)
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { d, info, _ ->
-                val s = info.size
-                val scale = SIZE.toFloat() / maxOf(1, minOf(s.width, s.height))
-                if (scale < 1f) d.setTargetSize(maxOf(1, (s.width * scale).toInt()), maxOf(1, (s.height * scale).toInt()))
+                val w = info.size.width.coerceAtLeast(1)
+                val h = info.size.height.coerceAtLeast(1)
+                // The short side fills the cell. The long side has its own limit: a 1 x 10^8 PNG compresses to a
+                // few MB, and with the short side alone it would decode at full size (gigabytes, a crash).
+                val scale = minOf(SIZE.toFloat() / minOf(w, h), MAX_SIDE.toFloat() / maxOf(w, h))
+                if (scale < 1f) d.setTargetSize(maxOf(1, (w * scale).toInt()), maxOf(1, (h * scale).toInt()))
                 d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             }
         }
@@ -140,6 +143,8 @@ class Thumbs(context: Context, private val content: Content, private val cacheKe
 
     private companion object {
         const val SIZE = 320
+        /** The long side of a decoded thumbnail at most: the bitmap stays under 1.7 MB for any image. */
+        const val MAX_SIDE = SIZE * 4
         const val QUALITY = 70
         const val MAX_IMAGE = 25L * 1000 * 1000
         const val MEMORY_BYTES = 48 * 1024 * 1024

@@ -19,6 +19,7 @@ import app.nubo.net.Http
 import app.nubo.offline.Offline
 import app.nubo.transfer.Transfers
 import app.nubo.ui.Messenger
+import app.nubo.ui.links.LinkSessions
 import app.nubo.ui.viewer.Viewers
 import app.nubo.work.CameraJob
 import app.nubo.work.Notifier
@@ -93,6 +94,7 @@ class NuboApp : Application() {
         CameraJob.cancel(this)
         drive.clear()
         Viewers.clear()
+        LinkSessions.clear()
         withContext(Dispatchers.IO) {
             thumbs.clear()
             offline.clear()

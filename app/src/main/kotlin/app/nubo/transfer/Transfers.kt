@@ -68,7 +68,10 @@ class Transfers(private val app: NuboApp) {
     private val jobs = HashMap<Long, Job>()
     private val retries = HashMap<Long, () -> Unit>()
 
-    /** The loops that read picked or shared URIs, so that [cancelAll] stops them too (review 77). Main thread only. */
+    /**
+     * The loops that queue tasks: the reads of picked or shared URIs (review 77) and the listings of folders to
+     * download. [cancelAll] stops them too, or they would queue tasks after a logout. Main thread only.
+     */
     private val intake = ArrayList<Job>()
 
     /**
@@ -139,12 +142,13 @@ class Transfers(private val app: NuboApp) {
 
     /** Saves files (and the files inside folders) to Download/Nubo, with the folder structure. */
     fun download(items: List<Item>) {
+        intake.removeAll { it.isCompleted }
         for (item in items) {
             if (!item.folder) {
                 save(item, "")
                 continue
             }
-            app.scope.launch {
+            intake += app.scope.launch {
                 try {
                     val tree = app.drive.tree(item.uuid)
                     val folders = tree.filter { it.folder }.associateBy { it.uuid } + (item.uuid to item)
@@ -186,11 +190,13 @@ class Transfers(private val app: NuboApp) {
     fun clearFinished() = _list.update { l -> l.filter { it.active }.also { kept -> retries.keys.retainAll(kept.map { it.id }.toSet()) } }
 
     fun cancelAll() {
-        intake.forEach { it.cancel() }
+        // Copies first: on Main.immediate a cancelled task can run its finally (jobs.remove) inside cancel(),
+        // which would change the map under the loop.
+        val stopped = intake + jobs.values
         intake.clear()
-        jobs.values.forEach { it.cancel() }
         jobs.clear()
         retries.clear()
+        stopped.forEach { it.cancel() }
         _list.value = emptyList()
     }
 

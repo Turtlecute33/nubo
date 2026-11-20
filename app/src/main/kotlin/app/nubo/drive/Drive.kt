@@ -180,12 +180,16 @@ class Drive(
 
         /**
          * Metadata that another user encrypted for this account with RSA. An old sharer app wrote Latin-1 by
-         * mistake (research F-78): text with replacement characters is read again as Latin-1.
+         * mistake (research F-78): bytes that are not valid UTF-8 are read as Latin-1. Valid UTF-8 stays as it
+         * is, also a name with a real U+FFFD in it.
          */
         fun shared(ring: Keyring, text: String): String {
             val bytes = ring.decryptSharedBytes(text)
-            val utf8 = bytes.decodeToString()
-            return if ('�' in utf8) String(bytes, Charsets.ISO_8859_1) else utf8
+            return try {
+                bytes.decodeToString(throwOnInvalidSequence = true)
+            } catch (_: CharacterCodingException) {
+                String(bytes, Charsets.ISO_8859_1)
+            }
         }
     }
 }

@@ -27,8 +27,11 @@ class Navigator : ViewModel() {
 
     val backStack: List<Route> get() = stacks.getValue(tab)
 
-    /** Files that another app shared: the app asks for a folder, then uploads them. */
-    var pendingUploads by mutableStateOf<List<android.net.Uri>>(emptyList())
+    /**
+     * Files that other apps shared, one list for each share: the app asks for a folder for each in turn, then
+     * uploads the files. A second share waits for its own question: it never changes the files of an open one.
+     */
+    val pendingUploads = mutableStateListOf<List<android.net.Uri>>()
 
     /** A Filen link that another app shared or opened: the app shows it. */
     var pendingLink by mutableStateOf<app.nubo.drive.Links.Parsed?>(null)

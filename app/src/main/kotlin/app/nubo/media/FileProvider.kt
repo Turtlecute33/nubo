@@ -15,8 +15,6 @@ import app.nubo.crypto.hex
 import app.nubo.drive.Item
 import app.nubo.util.FileType
 import java.io.FileNotFoundException
-import java.util.Collections
-import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -42,11 +40,16 @@ class FileProvider : ContentProvider() {
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (mode != "r") throw SecurityException("Read only")
-        val item = entry(uri) ?: throw FileNotFoundException("Unknown or expired file")
         val context = context ?: throw FileNotFoundException("No context")
-        val reader = ChunkReader(context.app.content, item)
-        readers += reader
-        return ProxyFd.open(context, reader)
+        // In the lock of [clear]: a descriptor that opens during a logout cannot outlive it.
+        val reader = synchronized(readers) {
+            val item = entry(uri) ?: throw FileNotFoundException("Unknown or expired file")
+            // Each descriptor holds a thread and up to 6 MiB of plain chunks: an app with a grant cannot open
+            // descriptors with no end and take the memory of the app.
+            if (readers.size >= MAX_OPEN) throw FileNotFoundException("Too many open files")
+            ChunkReader(context.app.content, item).also { readers += it }
+        }
+        return ProxyFd.open(context, reader) { synchronized(readers) { readers -= reader } }
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? = throw UnsupportedOperationException()
@@ -60,10 +63,13 @@ class FileProvider : ContentProvider() {
 
     companion object {
         private const val LIFETIME_MS = 6 * 60 * 60_000L
+
+        /** Open descriptors at most, for all apps together. */
+        private const val MAX_OPEN = 8
         private val entries = ConcurrentHashMap<String, Entry>()
 
-        /** The readers of the open descriptors, for [clear]. Weak: a closed descriptor lets its reader go. */
-        private val readers: MutableSet<ChunkReader> = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+        /** The readers of the open descriptors; the lock of [openFile] and [clear]. A closed descriptor removes its reader. */
+        private val readers = HashSet<ChunkReader>()
 
         /** A new content URI for [item]: `content://<package>.files/<token>/<name>`. */
         fun uriFor(context: Context, item: Item): Uri {
@@ -81,13 +87,11 @@ class FileProvider : ContentProvider() {
          * Forgets every URI (at logout): apps that hold one can read no more. An app that has a descriptor open
          * gets an I/O error at its next read (review 67).
          */
-        fun clear() {
+        fun clear() = synchronized(readers) {
             entries.clear()
-            synchronized(readers) {
-                // Closing the reader's data source stops the reader itself.
-                readers.forEach { it.dataSource().close() }
-                readers.clear()
-            }
+            // Closing the reader's data source stops the reader itself.
+            readers.forEach { it.dataSource().close() }
+            readers.clear()
         }
 
         private fun entry(uri: Uri): Item? {

@@ -100,6 +100,8 @@ class CryptoTest {
         assertEquals("filen", ringA.decryptShared(k("RSA_FILEN")))
         assertEquals("filen", ringB.decryptShared(k("RSA_FILEN_KEY_B")))
         assertEquals("hello ✓", ringA.decryptShared(Keyring.encryptFor(k("KEY_A_SPKI"), "hello ✓")))
+        // Shared metadata: a real U+FFFD is valid UTF-8 and is not read again as Latin-1 (that is for invalid bytes).
+        assertEquals("report \uFFFD.txt", app.nubo.drive.Drive.shared(ringA, Keyring.encryptFor(k("KEY_A_SPKI"), "report \uFFFD.txt")))
     }
 
     @Test

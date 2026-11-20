@@ -14,6 +14,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -88,8 +89,9 @@ private fun Content(nav: Navigator, state: AccountState) {
             nav.goIn(Tab.HOME, Route.PublicLink(link))
             nav.pendingLink = null
         }
-        if (nav.pendingUploads.isNotEmpty()) {
-            UploadTarget(nav.pendingUploads, onDone = { nav.pendingUploads = emptyList() })
+        // One dialog for each share, in turn. The key gives the next share a new dialog, not the folder of the last one.
+        nav.pendingUploads.firstOrNull()?.let { uris ->
+            key(uris) { UploadTarget(uris, onDone = { nav.pendingUploads.remove(uris) }) }
         }
     }
 }

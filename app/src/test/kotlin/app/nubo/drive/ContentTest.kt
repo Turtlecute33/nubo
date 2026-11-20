@@ -89,4 +89,14 @@ class ContentTest {
         assertContentEquals(plain, out.toByteArray())
         assertTrue(fake.requests.isEmpty())
     }
+
+    @Test
+    fun aNegativeSizeIsRefusedBeforeTheArray() = runTest {
+        val fake = server(chunks(plain))
+        // -2^31 - 1 passes "size > max", and toInt() makes it Int.MAX_VALUE: a 2 GB array.
+        val bad = item("", size = -2_147_483_649L)
+        assertFailsWith<IOException> { Content(Api(fake), { _, _ -> null }).bytes(bad, 80_000_000) }
+        assertFailsWith<IOException> { Content.chunkCount(bad) }
+        assertTrue(fake.requests.isEmpty())
+    }
 }
