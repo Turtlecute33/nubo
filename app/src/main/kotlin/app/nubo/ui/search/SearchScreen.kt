@@ -1,5 +1,6 @@
 package app.nubo.ui.search
 
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -76,7 +77,8 @@ fun SearchScreen() {
     val focus = remember { FocusRequester() }
     val query = entry.query
     val hits = entry.hits
-    val index = SearchEntries.index?.takeIf { it.items === tree }
+    // While a new tree is folded, the last index shows: a refresh does not blank the results.
+    val index = SearchEntries.index
 
     DisposableEffect(id) {
         // A result that opens on top keeps the text; Back or a jump to the tab root removes it.
@@ -84,14 +86,17 @@ fun SearchScreen() {
     }
     LaunchedEffect(Unit) { if (entry.query.isEmpty()) focus.requestFocus() }
     LaunchedEffect(tree == null, error) {
-        if (tree != null || error != null) return@LaunchedEffect
+        if (error != null) return@LaunchedEffect
+        // Another device can change the drive: an old tree shows at once and is read again behind it.
+        val old = tree
+        if (old != null && SystemClock.elapsedRealtime() - app.drive.searchTreeAt < TREE_MAX_AGE_MS) return@LaunchedEffect
         try {
             val root = app.account.session?.baseFolder ?: return@LaunchedEffect
             tree = app.drive.tree(root).also { app.drive.searchTree = it }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            error = userText(e)
+            if (old == null) error = userText(e) // a failed refresh keeps the old results
         }
     }
     // The names fold once for each tree, not for each key press (review 101).
@@ -203,3 +208,6 @@ internal object SearchEntries {
 }
 
 private const val MAX_RESULTS = 300
+
+/** A search tree older than this is read again when a search opens. */
+private const val TREE_MAX_AGE_MS = 60_000L

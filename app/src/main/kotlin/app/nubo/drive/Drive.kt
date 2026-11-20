@@ -49,9 +49,20 @@ class Drive(
 
     fun cached(listing: Listing): List<Item>? = synchronized(cache) { cache[listing] }
 
-    /** The whole own tree of the last search, while nothing changes. Memory only; gone at logout. */
+    /**
+     * The whole own tree of the last search. Memory only; gone at logout and after a change in this app. Other
+     * devices can change the drive too: [searchTreeAt] tells the search when to read it again.
+     */
     @Volatile
     var searchTree: List<Item>? = null
+        set(value) {
+            field = value
+            searchTreeAt = android.os.SystemClock.elapsedRealtime()
+        }
+
+    @Volatile
+    var searchTreeAt = 0L
+        private set
 
     /** Reads [listing] from the server (or the phone for [Listing.Offline]) and caches it. */
     suspend fun list(listing: Listing): List<Item> = guard {
