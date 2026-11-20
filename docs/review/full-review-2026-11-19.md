@@ -21,7 +21,7 @@ Format: `ID [severity] [status]` — problem; fix.
 
 ## Status (0.2.0)
 
-All items are fixed except R-72 (open) and four items that are partly fixed (R-52, R-65, R-85, R-101). R-73 was
+All items are fixed except R-72 (open) and three items that are partly fixed (R-52, R-85, R-101). R-73 was
 an investigation. 61 unit tests pass (25 new); lint: no issues. Checked on the phone with 0.2.0: R-39 (the
 notification request at the first transfer), R-47, R-56, R-84, R-86, R-87, R-88, R-92, and R-34..R-36 again.
 The other fixes are checked by unit tests and by reading the code only.
@@ -121,8 +121,11 @@ Protocol and security:
   keep only the UUID.
 - R-64 [low] [fixed] A link with a password shows "The link password is wrong" also for 429 and 5xx (code). Fix:
   map only a real refusal.
-- R-65 [low] [partly: no retry of a too large answer; tree calls keep the 32 MiB limit (a streamed parse is the real fix)] "Answer too large" (32 MiB) counts as transient and downloads 2 more times; a very large tree
-  fails (code). Fix: no retry; a larger limit for tree calls.
+- R-65 [medium] [fixed 2026-11-20: streamed parse] "Answer too large" (32 MiB) counts as transient and downloads 2 more times; a very large tree
+  fails (code). A tester saw search fail after 10-12 s on a large drive. Fix: no retry; the tree (`/v3/dir/download`) is
+  read as a stream (`Transport.stream`, `Api.postLarge`, `Decode.tree`), one item at a time, with no size limit and a
+  limit of 200,000 items. VERIFY: emulator, 199,500 items (81 MiB) in 2.8 s with 62 MiB of items; the old parse ran
+  out of memory at 105,000 items (42 MiB). Phone: search and Photos on a 56.8 MiB tree (device-test.md, 2026-11-20).
 - R-66 [low] [fixed] `Links.find` keeps a full stop or a bracket at the end of a link (code). Fix: trim them.
 - R-67 [low] [fixed] `FileProvider.clear` deletes the tokens but not the open readers; another app can go on
   reading after logout (code). Fix: close the open readers.
@@ -191,3 +194,8 @@ UI and UX:
   makes a formatter per call (code).
 - R-102 [low] [fixed] The tab `Crossfade` and the tile scale do not use `MaterialTheme.motionScheme` (code).
 - R-103 [low] [fixed] The splash also waits for `offline.load()` (code).
+- R-104 [medium] [fixed 2026-11-20] The search tree stays in memory until a change in this app or a restart. Files
+  that another device adds never show in search (phone test, 2026-11-20). Fix: a tree older than 60 s shows at once
+  and is read again behind it; the old results stay until the new index is ready.
+- R-105 [low] [fixed 2026-11-20] The wavy storage bars on Home and Me animate their wave all the time: the Me screen
+  draws about 66 frames each second at rest (phone test). Fix: `waveSpeed = 0.dp` on bars with a fixed value.

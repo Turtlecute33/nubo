@@ -57,3 +57,31 @@ Not tested on the phone in this round: reboot and camera upload (R-37, R-38, R-4
 
 The README banner and screenshots come from this phone, with synthetic files on the test account, a
 clean status bar painted over the real one, and no personal data. The test files were deleted after.
+
+## 2026-11-20, 0.2.1 with the review fixes and the streamed tree (release build)
+
+The test account got a large synthetic drive: 67,494 files and 3,536 folders (tiny text files, 2,000 camera
+photos, real video, audio, PDF and image files, files of 100 MB, 500 MB and 2 GiB, odd names, a chain of 70
+folders, and entries with bad metadata). The whole tree answer is 56.8 MiB (the old limit was 32 MiB).
+
+| Test | Result |
+|---|---|
+| Unit tests, lint | 68 tests pass; lint: only notes about newer library versions |
+| Release APK | 3.05 MB |
+| Cold start (`am start -W`, 4 runs) | 570–627 ms, the same as before |
+| Search, about 45,000 files (tree about 37 MiB) | Results in about 10–13 s from the open of search; about 17 MiB on the network (compressed). The old parse ran out of memory with a 42 MiB tree on the emulator (R-65) |
+| Search after changes from another device | Before the fix: no results until a restart (R-104). After: a tree older than 60 s is read again; the new file shows after about 5 s |
+| Search, 70 folders deep | The result shows "… › level-68 › level-69 › level-70" |
+| Photos, the whole test folder (about 71,000 items) | 2,003 photos and 2 videos; scroll: 1,317 frames, 0 janky, 99th percentile 8 ms; Java heap about 80–88 MB |
+| Thumbnails: 48 MP JPEG, 20000 × 200 PNG, 1 × 60000 PNG, 4K HEVC and 1080p video | Correct, no crash |
+| Folder with 5,000 files | Scroll: 1,056 frames, 1 janky (0.09 %), 99th percentile 11 ms. Open: 7 s or less (upper limit: the screen read waits for the loading animation) |
+| Bad entries from a sharer | Right-to-left override, BEL, C1 control and not-JSON metadata: hidden. Negative or not-a-number size: shown with the size from the server. MIME type with parameters: shown. A 20,000-character MIME type: Filen refuses it (`invalid_params`) |
+| Odd names | NFC and NFD, Japanese, Chinese, Korean, Hebrew, Arabic, emoji with joiners, 240 characters, `#` and `%23`: correct |
+| Viewers | 10 min 1080p video: plays, seek to 7:35 correct. 30 min AAC: plays. 200-page PDF, 48 MP JPEG: correct |
+| Folder download: 0 B, 1 B, 1 MiB − 1, 1 MiB, 1 MiB + 1; 100 MB, 500 MB, 2 GiB (2^31 B) | Same SHA-256 as the source files; about 4.7 MB/s |
+| Share 2 and 3 files from Files (grant in ClipData) | Upload correct. While another client holds the write lock: "Another Filen app is writing now. Try again in a minute." with "Try again" |
+| Keep offline, 100 MB (check of each chunk, size and BLAKE3) | Correct; remove: correct |
+| Me screen at rest | Before: 198 frames in 3 s (the wavy storage bar, R-105). After: 0 frames |
+
+The test files on the phone were deleted after the test. The synthetic drive stays on the test account for the
+next tests.
