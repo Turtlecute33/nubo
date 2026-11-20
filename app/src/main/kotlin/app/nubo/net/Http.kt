@@ -16,6 +16,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -99,7 +100,9 @@ class Http(private val context: Context) : Transport {
     override suspend fun send(method: String, url: String, headers: Map<String, String>, body: ByteArray?, maxBytes: Int): Transport.Response {
         requireHttps(url)
         return try {
-            withIdleTimeout { activity -> once(method, url, headers, body, maxBytes, activity) }
+            // On IO: the first request builds the engine, which reads and writes the disk. Callers such as the
+            // login and the public link screen call from the main thread.
+            withContext(Dispatchers.IO) { withIdleTimeout { activity -> once(method, url, headers, body, maxBytes, activity) } }
         } catch (e: HttpException) {
             throw readable(e)
         }
