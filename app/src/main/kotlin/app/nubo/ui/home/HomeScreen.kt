@@ -98,6 +98,7 @@ fun HomeScreen() {
 
     val x = AppTheme.extra
     val quick = listOf(
+        Quick("Notes", Icons.StickyNote, MaterialShapes.Arch.toShape(), x.spreadsheet) { nav.go(Route.Notes) },
         Quick("Favourites", Icons.StarFill, MaterialShapes.Cookie9Sided.toShape(), x.warning) { nav.go(Route.Folder(Listing.Favorites, "Favourites")) },
         Quick("Shared", Icons.Group, MaterialShapes.Circle.toShape(), x.document) { nav.go(Route.Folder(Listing.SharedIn, "Shared with me")) },
         Quick("My shares", Icons.FolderSharedFill, MaterialShapes.Square.toShape(), x.audio) { nav.go(Route.Folder(Listing.SharedOut, "Shared by me")) },

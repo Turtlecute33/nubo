@@ -22,6 +22,10 @@ sealed interface Route {
     }
 
     data object Search : Route
+    data object Notes : Route
+
+    /** A note editor. Only the ID: no title goes into the saved state. */
+    data class Note(val uuid: String) : Route
     data object Transfers : Route
     data object Settings : Route
     data object CameraSettings : Route

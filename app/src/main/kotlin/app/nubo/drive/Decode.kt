@@ -121,18 +121,20 @@ object Decode {
         return if (kotlin.math.abs(now - t) < kotlin.math.abs(now - t * 1000)) t else t * 1000
     }
 
-    /** Numbers can come as numbers or as text. */
-    private fun JSONObject.optLongLoose(name: String): Long {
-        val v: Any? = opt(name)
-        if (v is Number) return v.toLong()
-        if (v is String) return v.toLongOrNull() ?: v.toDoubleOrNull()?.toLong() ?: -1L
-        return -1L
-    }
+}
 
-    private fun JSONObject.optBoolLoose(name: String): Boolean {
-        val v: Any? = opt(name)
-        if (v is Boolean) return v
-        if (v is Number) return v.toInt() == 1
-        return v is String && (v == "1" || v == "true")
-    }
+/** Numbers can come as numbers or as text. */
+internal fun JSONObject.optLongLoose(name: String): Long {
+    val v: Any? = opt(name)
+    if (v is Number) return v.toLong()
+    if (v is String) return v.toLongOrNull() ?: v.toDoubleOrNull()?.toLong() ?: -1L
+    return -1L
+}
+
+/** Booleans can come as `true`, `1` or text. */
+internal fun JSONObject.optBoolLoose(name: String): Boolean {
+    val v: Any? = opt(name)
+    if (v is Boolean) return v
+    if (v is Number) return v.toInt() == 1
+    return v is String && (v == "1" || v == "true")
 }

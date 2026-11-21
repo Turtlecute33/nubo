@@ -36,6 +36,19 @@ class Account(
     /** The account keys. Throws when nobody is logged in. */
     fun keys(): Keyring = session?.keys ?: throw ApiException("api_key_not_found", 401)
 
+    @Volatile
+    private var readId = 0L
+
+    /**
+     * The own user ID: notes and chats find the own key copy with it (research N-89, C-34). A login whose
+     * `/v3/user/info` call failed stored 0: then read it now, once, in memory.
+     */
+    suspend fun userId(): Long {
+        session?.userId?.takeIf { it > 0 }?.let { return it }
+        if (readId <= 0) readId = api.get("/v3/user/info").optLong("id")
+        return readId.takeIf { it > 0 } ?: throw ApiException("bad_answer", 0)
+    }
+
     /** Reads the saved session. Off the main thread (Keystore). */
     fun load() {
         val s = store.load()
@@ -61,6 +74,7 @@ class Account(
             store.clear()
         }
         api.key = null
+        readId = 0
         _state.value = AccountState.LoggedOut
         onLogout()
     }

@@ -16,6 +16,8 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
   recents; transfers; viewers for images, video, audio, text and PDF; app lock; settings.
   Extras: photo timeline and camera upload; public links and shares with Filen users; offline files;
   public Filen links open in the app.
+- Notes (owner, 2026-11-20, after tester feedback): Filen notes (§12). They open from Home and Me; the
+  four tabs stay.
 - App lock: a screen lock, optional, off by default. It does not encrypt data (§7).
 - Repository: public on GitHub, `Turtlecute33/nubo`. Releases there and on Zapstore.
 - Protocol: a clean-room Kotlin version. The code reference is the MIT Go SDK (`filen-sdk-go`).
@@ -33,7 +35,8 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 ## 3. Non-goals
 
 - No account creation, no password change, no 2FA setup, no plan or invoice screens.
-- No two-way folder sync, no notes, no chat, no contacts screen, no file versions screen.
+- No two-way folder sync, no chat, no contacts screen, no file versions screen.
+- Notes: no tags, no note history, no sharing of notes with other users, no edit of rich-text notes (§12).
 - No server-side search index (F-68, F-91).
 - No WebSocket events (F-18).
 - No folder upload (single and multiple files only).
@@ -45,9 +48,9 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 - One `:app` module. One `ComponentActivity`. Compose only.
 - The object graph is in `NuboApp` (`by lazy`), reached with `Context.app`. No DI framework.
 - Packages: `crypto` (formats and key derivation), `api` (HTTP envelope, login), `net` (HttpEngine),
-  `drive` (listings, writes, sharing, links, upload, download), `offline`, `media` (thumbnails,
-  chunk reader, open-with provider), `transfer`, `work` (camera job, notifications), `data` (vault,
-  session, settings), `ui`.
+  `drive` (listings, writes, sharing, links, upload, download), `notes`,
+  `offline`, `media` (thumbnails, chunk reader, open-with provider), `transfer`, `work` (camera job,
+  notifications), `data` (vault, session, settings), `ui`.
 - Navigation: four tabs (Home, Drive, Photos, Me), each with its own back stack in `Navigator`
   (a ViewModel). Each tab keeps its saved UI state while another tab shows. Routes keep personal
   data out of `toString()`, because it is the key of the saved state. After process death the app
@@ -83,6 +86,7 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 | Thumbnails | `cacheDir/thumbs/<hash>` | AES-256-GCM with the session cache key |
 | Camera upload mark | `noBackupFilesDir/camera-mark.json` | Not secret: a MediaStore ID and a time |
 | Logout mark | `noBackupFilesDir/wipe-pending` | Empty; the next start finishes a stopped wipe (review 74) |
+| Notes and their keys | Memory only | Not on the disk; gone at logout and when the process ends |
 
 - The cache key is 32 random bytes made at login. It lives only in the encrypted session.
 - No plain file content goes to the disk. Viewers read chunks into memory. "Open with" and "Send a
@@ -105,8 +109,10 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 - Copied links are sensitive clips. The app clears the clip when the user comes back to the app, or after
   1 minute in the app, if the clip is still its own (review 49).
 - Tapjacking: the window drops touches that go through an overlay of another app.
-- The keyboard does not learn from the password, code, search, link and name fields
+- The keyboard does not learn from the password, code, search, link, name and note fields
   (`IME_FLAG_NO_PERSONALIZED_LEARNING`).
+- Note HTML (rich text, checklists) comes from other users too. Nubo never renders it as HTML or loads a
+  URL from it: it shows text only (N-93).
 - Logs: no names, keys, links or server messages. `Item`, `Session`, `Links.Parsed` and the routes
   print only IDs. Release builds remove `Log.v/d/i`.
 - Incoming shares: only content URIs of other apps (no `@` in the authority), at most 500, and only the
@@ -124,7 +130,7 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 ## 8. Network and privacy
 
 - Hosts: `gateway.filen.io` (API), `ingest.filen.io` (upload), `egest.filen.io` (download). No
-  fallback hosts, no CDN config, no WebSocket (F-12..F-18, F-91).
+  fallback hosts, no CDN config, no WebSocket (F-12..F-18, F-91). Notes use the gateway only.
 - HTTPS only, system CAs only, certificate transparency on Android 16 and later (Android 15 ignores the
   setting; review 73). No pinning: Filen publishes no pins (F-16).
 - User agent `nubo`, the same on every device. No device ID, install ID or push token (F-92, F-93).
@@ -167,8 +173,29 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 
 - Unit tests (JVM, no Robolectric, no mocks): crypto against the `filen-rs` known-answer values;
   the v2 login with 2FA against a scripted server; download order, size and hash checks; name rules;
-  item decoding; sort order; settings file; link URLs and link passwords.
+  item decoding; sort order; settings file; link URLs and link passwords; note keys and formats
+  against the vectors of the research (N-71); checklist HTML, previews and type conversions.
 - Not tested by the developer: anything against the real Filen servers. Live tests are for the owner
   only ([LIVE-TESTS.md](LIVE-TESTS.md)).
 - Not tested yet: v1 and v3 accounts with real data, camera upload on a real phone, the PDF and media
-  viewers on a real phone.
+  viewers on a real phone. Notes against the real servers (the open VERIFY points of
+  research/notes.md).
+
+## 12. Notes
+
+Facts: [research/notes.md](research/notes.md) (`N-nn`).
+
+- Screens: a list (Notes, Favourites, Archive, Trash; pinned first, then the newest edit; a search over
+  titles and previews on the phone) and an editor. Menu: pin, favourite, rename, change type, archive,
+  trash, restore, delete for ever; "leave" for a note that another user shares.
+- Types: Nubo writes text, Markdown and code as plain text, and checklists in the exact HTML of the
+  official apps (N-52). Rich text (Quill HTML) shows as plain text, read only (N-51). An unknown type is
+  read only (N-94). A type change converts the content: lines to rows and rows to lines (N-53).
+- Keys: a new note gets a 32-character key (`002`, N-40, N-41). The owner copy uses the account key, the
+  owner's participant copy RSA-OAEP (N-42, N-43); both go in under one "notes-write" lock (N-37, N-81).
+  `textKey` picks the cipher from the key length: never `DataKey.parse` for a note key (N-82).
+- Saves: 1.5 s after the last edit, when the app goes to the background, and when the editor closes; one
+  at a time, in the app scope. Before each save Nubo reads the server content: if another device changed
+  it, Nubo keeps both (the local text goes to a new note "… (conflict)") and shows the other text (N-69).
+- Size: a content of 1 048 575 encrypted characters or more is refused before the write (N-55).
+

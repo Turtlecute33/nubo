@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -25,8 +22,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,11 +33,12 @@ import app.nubo.drive.Listing
 import app.nubo.drive.Source
 import app.nubo.media.OpenWith
 import app.nubo.ui.Icons
+import app.nubo.ui.act
 import app.nubo.ui.components.ConfirmDialog
 import app.nubo.ui.components.ItemThumb
 import app.nubo.ui.components.NameDialog
+import app.nubo.ui.components.SheetAction
 import app.nubo.ui.components.subtitle
-import app.nubo.ui.components.userText
 import app.nubo.ui.nav.LocalNav
 import app.nubo.ui.nav.Navigator
 import app.nubo.ui.nav.Route
@@ -50,9 +46,7 @@ import app.nubo.ui.share.LinkSheet
 import app.nubo.ui.share.ShareSheet
 import app.nubo.ui.viewer.Viewers
 import app.nubo.util.Debounce
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 
 /** What the item menu and the selection bar can do, and the dialogs and sheets they open. One per screen. */
 @Stable
@@ -109,20 +103,7 @@ class ItemActions(private val app: NuboApp, private val nav: Navigator, private 
 
     fun leave(item: Item) = run { app.drive.sharing.leave(item) }
 
-    /** Runs [block]; an error goes to the snackbar, and [done] with an optional undo after success. */
-    /** Writes run in the app scope: a screen that closes (a tap into a folder, a tab change) must not stop them halfway. */
-    fun run(done: String? = null, undo: (suspend () -> Unit)? = null, block: suspend () -> Unit) {
-        app.scope.launch {
-            try {
-                block()
-                if (done != null) app.messenger.show(done, if (undo != null) "Undo" else null) { undo?.let { u -> run(block = u) } }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                app.messenger.show(userText(e))
-            }
-        }
-    }
+    fun run(done: String? = null, undo: (suspend () -> Unit)? = null, block: suspend () -> Unit) = app.act(done, undo, block)
 }
 
 @Composable
@@ -210,29 +191,29 @@ private fun ItemMenu(item: Item, listing: Listing, offline: Boolean, a: ItemActi
             HorizontalDivider()
             when {
                 trash -> {
-                    Action(Icons.SettingsBackupRestore, "Restore", act { a.restore(listOf(item)) })
-                    Action(Icons.DeleteForever, "Delete for ever", act { a.deleting = listOf(item) }, destructive = true)
+                    SheetAction(Icons.SettingsBackupRestore, "Restore", act { a.restore(listOf(item)) })
+                    SheetAction(Icons.DeleteForever, "Delete for ever", act { a.deleting = listOf(item) }, destructive = true)
                 }
                 else -> {
-                    if (!item.folder) Action(Icons.OpenInNew, "Open with", act { OpenWith.open(context, item) })
-                    if (!item.folder) Action(Icons.Share, "Send a copy", act { OpenWith.share(context, listOf(item)) })
+                    if (!item.folder) SheetAction(Icons.OpenInNew, "Open with", act { OpenWith.open(context, item) })
+                    if (!item.folder) SheetAction(Icons.Share, "Send a copy", act { OpenWith.share(context, listOf(item)) })
                     // A folder downloads through the own-drive tree; shared and link folders open to download files.
-                    if (!item.folder || own) Action(Icons.Download, "Download", act { a.download(listOf(item)) })
+                    if (!item.folder || own) SheetAction(Icons.Download, "Download", act { a.download(listOf(item)) })
                     if (!item.folder && loggedIn && listing != Listing.Offline) {
-                        if (offline) Action(Icons.OfflinePinFill, "Remove offline copy", act { a.removeOffline(item) })
-                        else Action(Icons.OfflinePin, "Keep offline", act { a.offline(listOf(item)) })
+                        if (offline) SheetAction(Icons.OfflinePinFill, "Remove offline copy", act { a.removeOffline(item) })
+                        else SheetAction(Icons.OfflinePin, "Keep offline", act { a.offline(listOf(item)) })
                     }
-                    if (listing == Listing.Offline) Action(Icons.OfflinePinFill, "Remove offline copy", act { a.removeOffline(item) })
+                    if (listing == Listing.Offline) SheetAction(Icons.OfflinePinFill, "Remove offline copy", act { a.removeOffline(item) })
                     if (own) {
-                        Action(Icons.Link, "Public link", act { a.linking = item })
-                        Action(Icons.Group, "Share with Filen users", act { a.sharing = item })
-                        Action(if (item.favorite) Icons.StarFill else Icons.Star, if (item.favorite) "Remove from favourites" else "Add to favourites", act { a.favorite(item) })
-                        Action(Icons.DriveFileRenameOutline, "Rename", act { a.renaming = item })
-                        Action(Icons.DriveFileMove, "Move", act { a.moving = listOf(item) })
-                        Action(Icons.Delete, "Move to trash", act { a.trashing = listOf(item) }, destructive = true)
+                        SheetAction(Icons.Link, "Public link", act { a.linking = item })
+                        SheetAction(Icons.Group, "Share with Filen users", act { a.sharing = item })
+                        SheetAction(if (item.favorite) Icons.StarFill else Icons.Star, if (item.favorite) "Remove from favourites" else "Add to favourites", act { a.favorite(item) })
+                        SheetAction(Icons.DriveFileRenameOutline, "Rename", act { a.renaming = item })
+                        SheetAction(Icons.DriveFileMove, "Move", act { a.moving = listOf(item) })
+                        SheetAction(Icons.Delete, "Move to trash", act { a.trashing = listOf(item) }, destructive = true)
                     }
                     if (item.source is Source.SharedIn && listing == Listing.SharedIn) {
-                        Action(Icons.Logout, "Remove from my shared items", act { a.leaving = item }, destructive = true)
+                        SheetAction(Icons.Logout, "Remove from my shared items", act { a.leaving = item }, destructive = true)
                     }
                 }
             }
@@ -240,13 +221,3 @@ private fun ItemMenu(item: Item, listing: Listing, offline: Boolean, a: ItemActi
     }
 }
 
-@Composable
-private fun Action(icon: ImageVector, label: String, onClick: () -> Unit, destructive: Boolean = false) {
-    val color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-    ListItem(
-        onClick = onClick,
-        leadingContent = { Icon(icon, null, tint = color) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.padding(horizontal = 8.dp),
-    ) { Text(label, color = color) }
-}

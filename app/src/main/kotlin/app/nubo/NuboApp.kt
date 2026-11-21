@@ -14,6 +14,7 @@ import app.nubo.drive.Drive
 import app.nubo.drive.PublicLinks
 import app.nubo.drive.Uploader
 import app.nubo.media.FileProvider
+import app.nubo.notes.Notes
 import app.nubo.media.Thumbs
 import app.nubo.net.Http
 import app.nubo.offline.Offline
@@ -56,6 +57,7 @@ class NuboApp : Application() {
     val thumbs by lazy { Thumbs(this, content, { account.session?.cacheKey }) }
     val transfers by lazy { Transfers(this) }
     val notifier by lazy { Notifier(this) }
+    val notes by lazy { Notes(drive, account) }
 
     private val _ready = MutableStateFlow(false)
 
@@ -93,6 +95,7 @@ class NuboApp : Application() {
         FileProvider.clear()
         CameraJob.cancel(this)
         drive.clear()
+        notes.clear()
         Viewers.clear()
         LinkSessions.clear()
         withContext(Dispatchers.IO) {

@@ -110,6 +110,17 @@ class DataKey(val bytes: ByteArray) : MetaKey {
     }
 }
 
+/**
+ * The key of a note or a chat, from its text (research N-41, C-30): 32 characters use `002` with PBKDF2 over the
+ * text, 64 hex characters use `003` with the raw bytes. Not [DataKey.parse]: it reads 32 characters as raw bytes,
+ * and `003` text from such a key is unreadable for the other Filen apps (N-82, C-71).
+ */
+fun textKey(text: String): MetaKey = when {
+    text.length == 32 -> MasterKey(text.encodeToByteArray())
+    text.length == 64 && text.isHex() -> DataKey(text.unhex())
+    else -> throw GeneralSecurityException("Bad key")
+}
+
 private const val GCM = "AES/GCM/NoPadding"
 
 /** Every decrypt failure is a [GeneralSecurityException], also bad base64 or hex. */

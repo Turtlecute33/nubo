@@ -209,7 +209,10 @@ fun ConfirmDialog(
     )
 }
 
-/** One text field in a dialog: a new folder name or a rename. The name part before the extension is selected. */
+/**
+ * One text field in a dialog: a new folder name, a rename, a note title. The name part before the extension is
+ * selected. [valid] is the rule for the trimmed text: a file name by default.
+ */
 @Composable
 fun NameDialog(
     title: String,
@@ -217,12 +220,13 @@ fun NameDialog(
     confirm: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
+    valid: (String) -> Boolean = { it.isNotEmpty() && it != "." && it != ".." && '/' !in it && it.length <= 255 },
 ) {
     val stem = initial.lastIndexOf('.').takeIf { it > 0 } ?: initial.length
     var value by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, stem))) }
     val focus = remember { FocusRequester() }
     val name = value.text.trim()
-    val valid = name.isNotEmpty() && name != "." && name != ".." && '/' !in name && name.length <= 255
+    val valid = valid(name)
     val submit = { if (valid) { onDismiss(); onConfirm(name) } }
     LaunchedEffect(Unit) { focus.requestFocus() }
     AlertDialog(
@@ -245,4 +249,16 @@ fun NameDialog(
         confirmButton = { TextButton(onClick = submit, enabled = valid) { Text(confirm) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** One row of a bottom-sheet menu. [destructive] colours it as an error. */
+@Composable
+fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit, destructive: Boolean = false) {
+    val color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+    ListItem(
+        onClick = onClick,
+        leadingContent = { Icon(icon, null, tint = color) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.padding(horizontal = 8.dp),
+    ) { Text(label, color = color) }
 }

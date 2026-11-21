@@ -6,6 +6,8 @@ import app.nubo.ui.drive.FolderScreen
 import app.nubo.ui.home.HomeScreen
 import app.nubo.ui.links.PublicLinkScreen
 import app.nubo.ui.me.MeScreen
+import app.nubo.ui.notes.NoteScreen
+import app.nubo.ui.notes.NotesScreen
 import app.nubo.ui.photos.CameraSettingsScreen
 import app.nubo.ui.photos.PhotosScreen
 import app.nubo.ui.search.SearchScreen
@@ -29,6 +31,8 @@ fun RouteContent(route: Route) {
         Route.Me -> MeScreen()
         is Route.Folder -> FolderScreen(route.listing, route.title)
         Route.Search -> SearchScreen()
+        Route.Notes -> NotesScreen()
+        is Route.Note -> NoteScreen(route.uuid)
         Route.Transfers -> TransfersScreen()
         Route.Settings -> SettingsScreen()
         Route.CameraSettings -> CameraSettingsScreen()

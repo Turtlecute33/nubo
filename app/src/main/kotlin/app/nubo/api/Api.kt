@@ -67,6 +67,9 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
 
     suspend fun get(path: String): JSONObject = call("GET", GATEWAY + path, null)
 
+    /** Like [get], for an answer whose `data` is an array (notes, chats, contacts). */
+    suspend fun getArray(path: String): org.json.JSONArray = callRaw("GET", GATEWAY + path, null).optJSONArray("data") ?: org.json.JSONArray()
+
     /** Like [post], for an answer whose `data` is an array. */
     suspend fun postArray(path: String, body: JSONObject = JSONObject()): org.json.JSONArray =
         callRaw("POST", GATEWAY + path, body.toString().encodeToByteArray()).optJSONArray("data") ?: org.json.JSONArray()
