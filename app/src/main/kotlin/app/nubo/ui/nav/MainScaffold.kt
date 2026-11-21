@@ -104,6 +104,8 @@ fun MainScaffold(nav: Navigator) {
     }
     // The user turned off the tab that shows: go to Home.
     LaunchedEffect(tabs) { if (tabs.none { it.tab == nav.tab }) nav.select(Tab.HOME) }
+    // Six tabs: only the label of the selected tab, so that the labels do not cut on a narrow phone.
+    val labels = tabs.size <= 5
 
     LaunchedEffect(Unit) {
         app.messenger.messages.collect { m ->
@@ -148,10 +150,10 @@ fun MainScaffold(nav: Navigator) {
                                 haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                                 nav.select(t.tab)
                             },
-                            icon = { Icon(if (selected) t.selected else t.icon, null) },
+                            // A hidden label: the icon gets the name, so that a screen reader can say the tab.
+                            icon = { Icon(if (selected) t.selected else t.icon, if (labels || selected) null else t.label) },
                             label = { Text(t.label) },
-                            // Six tabs: only the label of the selected tab, so that the labels do not cut on a narrow phone.
-                            alwaysShowLabel = tabs.size <= 5,
+                            alwaysShowLabel = labels,
                         )
                     }
                 }

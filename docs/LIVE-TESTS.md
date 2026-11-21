@@ -97,9 +97,8 @@ files.
 
 1. Settings › Bottom bar: turn on Notes. Expected: a Notes tab with no Back arrow; no Notes tile on
    Home and no Notes row in Me.
-2. Turn on Chats too (six tabs). Expected: only the label of the selected tab shows. Check with the
-   largest font size and display size.
-3. Turn Notes off while the Notes tab shows. Expected: the app goes to Home.
+2. Turn on Chats too (six tabs). Expected: only the label of the selected tab shows, and TalkBack
+   says the name of each tab. Check with the largest font size and display size.
 
 ## 11. Android file picker
 
