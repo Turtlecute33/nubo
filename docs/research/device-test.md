@@ -167,3 +167,21 @@ table are in [review/performance-2026-11-21.md](../review/performance-2026-11-21
 | Photos tab, 2,006 media | Grid in 0.12–0.16 s from the disk copy (0.4.0: 16.0–17.3 s) |
 | Folder with 5,000 files | Streamed read 0.51–0.87 s against 0.75–1.12 s for the whole answer, in the same runs |
 | Final build | Search, typing, pull to refresh, Photos: correct, no crash. The app was stopped after the test |
+
+## 2026-11-21, 0.5.1 (release build, installed over 0.5.0)
+
+Synthetic 64 × 64 JPEGs in `DCIM/NuboTest`, deleted after the test. Media access was given for the test and taken
+back after it. The phone was on mobile data.
+
+| Test | Result |
+|---|---|
+| Unit tests, lint | 91 tests pass; lint: no issues |
+| Release APK | 3.49 MB, the same signing certificate |
+| Turn on camera upload | The dialog says that uploaded photos and videos have no location |
+| 4 new photos (one is `CON.jpg`), "Only on Wi-Fi" on | "Last upload: … · 4 waiting" when the screen opens again |
+| "Only on Wi-Fi" off, "Check now" | 3 photos upload and the count goes. `CON.jpg` is under "Not uploaded" with "This name is reserved. Rename it on the phone." and no "Try again" |
+| `CON.jpg` renamed on the phone, screen opened again | The new name shows, with "Try again"; the upload in Transfers is done |
+
+Not tested on the phone: the folder upload that skips the files that are in the drive (the phone locked during the
+test). The count of waiting media does not change while the screen shows; it changes at the next upload and when the
+screen opens again.

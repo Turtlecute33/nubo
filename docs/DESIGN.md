@@ -114,7 +114,9 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 - The Keystore key has no user-authentication binding: camera upload and transfers need the session
   while the screen is locked.
 - App lock (optional): `BiometricPrompt` with `BIOMETRIC_STRONG or DEVICE_CREDENTIAL`, at each start
-  and each time the app goes to the background. It is a screen lock only.
+  and each time the app goes to the background. It is a screen lock only. While the app is locked, the
+  system file picker shows no Nubo entry and opens no file; a file that another app opened before the lock
+  stays readable until that app closes it. Logout stops such a read (review 67).
 - Block screenshots (on by default): `FLAG_SECURE` and no recents screenshot. With the app lock on, recents
   shows no screenshot either (review 50).
 - Copied links are sensitive clips. The app clears the clip when the user comes back to the app, or after
@@ -164,13 +166,17 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
   `DCIM/`, on any network or only unmetered networks.
 - It uploads media added after the time the user turned it on (or all, if the user chose that), in
   the order they were added, and stores a mark of the last one, so each item uploads once.
-- No media location permission: Android removes the GPS position from the files.
+- No media location permission: Android removes the GPS position from the files. The dialog that turns
+  camera upload on tells this.
 - The job cannot be persisted (content triggers), so a boot receiver schedules it again after a reboot
   (review 37).
 - Only a refusal of one item by the server counts as a try (3 tries, then the item gives way). A network
   error, a stop by the system (except the time limit) and an account error do not count. On an account or
   folder error (storage full, folder gone, session ended) the run stops and a notification tells the user
   (review 38, 40). A run stops after about 8 minutes and runs again at once (review 83).
+- The Camera upload screen shows the last upload, the count of media that wait, a problem that stopped the
+  run, and the items that did not upload. "Try again" sends these items to Transfers, except an item with a
+  name that Filen refuses: the screen shows the reason, and the user renames the file on the phone.
 
 ## 10. Protocol notes
 
@@ -180,6 +186,8 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 - Each create, move, restore and rename updates the shares and links of the folder (F-53).
 - Same name on upload: the server replaces the old file and keeps it as a version when the account
   has versioning on (F-52).
+- Folder upload: a file with the same name, size and modified time in the cloud folder is not sent again.
+  The queue is not kept over a process death, so a second pick of the folder uploads only what is missing.
 
 ## 11. Tests
 
@@ -191,9 +199,9 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
   the part of the root read, the newest read wins); the decode on all cores keeps the order.
 - Not tested by the developer: anything against the real Filen servers. Live tests are for the owner
   only ([LIVE-TESTS.md](LIVE-TESTS.md)).
-- Not tested yet: v1 and v3 accounts with real data, camera upload on a real phone, the PDF and media
-  viewers on a real phone. Notes and chat against the real servers (the open VERIFY points of the two
-  research files), and a chat between two accounts.
+- Not tested yet: v1 and v3 accounts with real data; camera upload over a reboot, with battery
+  restrictions and with full storage; notes and chat with the official Filen apps, and a chat between two
+  accounts (LIVE-TESTS §7 and §8).
 
 ## 12. Notes
 

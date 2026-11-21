@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.text.Normalizer
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -138,8 +139,10 @@ class Transfers(private val app: NuboApp) {
     /**
      * Uploads a folder that the user picked ([tree], from the system folder picker) into [parent], with its
      * subfolders: the same folders are made in the drive (a folder with the same name is used again), and each
-     * file goes into the queue. A queued upload can start after the activity is gone, so the app holds the
-     * grant of the tree until the last of these uploads ends. DESIGN §6.
+     * file goes into the queue. A file that is in the drive with the same name, size and time is not sent again:
+     * after a stop (the queue is not kept over a process death), a second pick of the folder uploads only what is
+     * missing. A queued upload can start after the activity is gone, so the app holds the grant of the tree until
+     * the last of these uploads ends. DESIGN §6.
      */
     fun uploadTree(parent: String, tree: Uri) {
         val resolver = app.contentResolver
@@ -148,17 +151,28 @@ class Transfers(private val app: NuboApp) {
         intake.removeAll { it.isCompleted }
         intake += app.scope.launch {
             val ids = ArrayList<Long>()
+            var same = 0
             try {
                 val rootId = DocumentsContract.getTreeDocumentId(tree)
                 val rootName = withContext(Dispatchers.IO) { children(DocumentsContract.buildDocumentUriUsingTree(tree, rootId)).firstOrNull()?.name } ?: "Folder"
-                // Each folder: its document ID, the cloud folder that gets its content, the depth.
-                val todo = ArrayDeque(listOf(Triple(rootId, app.drive.ops.createFolder(parent, rootName).uuid, 0)))
+                val root = app.drive.ops.createFolder(parent, rootName).uuid
+                val todo = ArrayDeque(listOf(PickedDir(rootId, root, 0, app.drive.list(Listing.Dir(root)))))
                 while (todo.isNotEmpty()) {
-                    val (docId, cloud, depth) = todo.removeFirst()
+                    val (docId, cloud, depth, there) = todo.removeFirst()
                     val list = withContext(Dispatchers.IO) { children(DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)) }
                     for (c in list) {
                         if (c.dir) {
-                            if (depth < MAX_DEPTH) todo += Triple(c.id, app.drive.ops.createFolder(cloud, c.name).uuid, depth + 1)
+                            if (depth < MAX_DEPTH) {
+                                val sub = app.drive.ops.createFolder(cloud, c.name).uuid
+                                // Only a folder that was there has content; a new one is empty.
+                                val inSub = if (there.any { it.folder && it.uuid == sub }) app.drive.list(Listing.Dir(sub)) else emptyList()
+                                todo += PickedDir(c.id, sub, depth + 1, inSub)
+                            }
+                            continue
+                        }
+                        val name = Normalizer.normalize(c.name, Normalizer.Form.NFC)
+                        if (c.modified > 0 && there.any { !it.folder && it.name == name && it.size == c.size && it.modified == c.modified }) {
+                            same++
                             continue
                         }
                         val uri = DocumentsContract.buildDocumentUriUsingTree(tree, c.id)
@@ -168,7 +182,15 @@ class Transfers(private val app: NuboApp) {
                         ids += upload(cloud, src, c.size)
                     }
                 }
-                app.messenger.show(if (ids.isEmpty()) "“$rootName” has no files: only its folders were made" else "Uploading ${ids.size} ${if (ids.size == 1) "file" else "files"} from “$rootName”")
+                fun files(n: Int) = if (n == 1) "1 file" else "$n files"
+                app.messenger.show(
+                    when {
+                        ids.isNotEmpty() && same > 0 -> "Uploading ${files(ids.size)} from “$rootName”. ${files(same)} ${if (same == 1) "is" else "are"} in the drive already"
+                        ids.isNotEmpty() -> "Uploading ${files(ids.size)} from “$rootName”"
+                        same > 0 -> "All files of “$rootName” are in the drive already"
+                        else -> "“$rootName” has no files: only its folders were made"
+                    },
+                )
                 ids.mapNotNull { jobs[it] }.joinAll()
             } catch (e: CancellationException) {
                 throw e
@@ -180,6 +202,9 @@ class Transfers(private val app: NuboApp) {
             }
         }
     }
+
+    /** A folder of a picked folder: its document ID, the cloud folder that gets its content, the depth, the cloud items there. */
+    private data class PickedDir(val doc: String, val cloud: String, val depth: Int, val there: List<Item>)
 
     /** One entry of a picked folder. */
     private class Child(val id: String, val name: String, val mime: String, val dir: Boolean, val size: Long, val modified: Long)

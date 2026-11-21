@@ -30,13 +30,14 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
 ## Features
 
 - **Drive**: browse in a list or a grid, with a sort for each folder. Search, upload (files, or a
-  folder with its subfolders), download, new folder, rename, move, trash and restore, favourites and
+  folder with its subfolders; a second upload of the folder skips the files that are there), download, new folder, rename, move, trash and restore, favourites and
   recent files.
 - **Fast transfers**: parallel chunk uploads and downloads, a queue that goes on in the
   background, and one place that shows the progress. Share files from other apps to upload them.
 - **Photos**: a timeline of a cloud folder, and camera upload of new photos and videos. Camera
   upload can wait for Wi-Fi, and it starts again by itself after a reboot. Its screen shows the last
-  upload, a problem that stopped it, and the items that did not upload, with "Try again".
+  upload, the count of items that wait, a problem that stopped it, and the items that did not upload,
+  with "Try again" or the reason.
 - **Viewers in the app**: images (with zoom), video, audio, text and PDF.
 - **Offline files**: keep files on the phone and open them with no network. They stay encrypted in
   Nubo; Download saves a normal copy in Download/Nubo.

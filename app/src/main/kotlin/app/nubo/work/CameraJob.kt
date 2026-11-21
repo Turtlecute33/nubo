@@ -107,7 +107,7 @@ class CameraJob : JobService() {
     private suspend fun uploadNew(a: NuboApp, settings: CameraUpload, folder: String): Boolean {
         val began = SystemClock.elapsedRealtime()
         val mark = withContext(Dispatchers.IO) { Mark(a, folder) }
-        val entries = withContext(Dispatchers.IO) { pending(a, settings, mark) }
+        val entries = withContext(Dispatchers.IO) { pending(a, settings, mark).take(MAX_PER_RUN) }
         var good = false
         // The "did not upload" list changed in this run: one notification at the end, with the count then.
         var listed = false
@@ -204,42 +204,6 @@ class CameraJob : JobService() {
     )
 
     /**
-     * Media under DCIM that is not done, added after the time when the user turned camera upload on. The query
-     * looks back [Mark.WINDOW_S] before the newest done item: a long video is added as pending and appears
-     * later with its first time, after newer photos (review 14).
-     */
-    private fun pending(a: NuboApp, s: CameraUpload, mark: Mark): List<Entry> {
-        val collections = buildList {
-            add(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL))
-            if (s.videos) add(MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL))
-        }
-        val since = maxOf(s.since / 1000, mark.added - Mark.WINDOW_S)
-        val cols = arrayOf(
-            MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DISPLAY_NAME,
-            MediaStore.MediaColumns.MIME_TYPE, MediaStore.MediaColumns.DATE_MODIFIED, MediaStore.MediaColumns.DATE_TAKEN,
-            MediaStore.MediaColumns.SIZE,
-        )
-        val where = "${MediaStore.MediaColumns.DATE_ADDED} >= ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE 'DCIM/%'"
-        val out = ArrayList<Entry>()
-        for (collection in collections) {
-            a.contentResolver.query(collection, cols, where, arrayOf(since.toString()), null)?.use { c ->
-                while (c.moveToNext()) {
-                    val id = c.getLong(0)
-                    val added = c.getLong(1)
-                    if (mark.isDone(id)) continue
-                    val name = c.getString(2)?.substringAfterLast('/') ?: continue
-                    out += Entry(
-                        ContentUris.withAppendedId(collection, id), id, added, name,
-                        c.getString(3) ?: FileType.mime(name), c.getLong(4) * 1000, if (c.isNull(5)) 0 else c.getLong(5),
-                        if (c.isNull(6)) -1 else c.getLong(6),
-                    )
-                }
-            }
-        }
-        return out.sortedWith(compareBy({ it.added }, { it.id })).take(MAX_PER_RUN)
-    }
-
-    /**
      * What is done, for one cloud folder (another folder starts empty): the newest DATE_ADDED (s) and the IDs
      * done in the last [WINDOW_S] before it, and the tries of the item that runs now. No-backup storage.
      */
@@ -252,8 +216,10 @@ class CameraJob : JobService() {
         private var tries = 0
 
         init {
+            // The base file, not AtomicFile.readFully: that read can delete the file of a write that runs now (the
+            // Camera upload screen reads the mark while the job writes it).
             runCatching {
-                val o = JSONObject(file.readFully().decodeToString())
+                val o = JSONObject(file.baseFile.readText())
                 if (o.optString("folder") == folder) {
                     added = o.optLong("added")
                     o.optJSONObject("done")?.let { d -> d.keys().forEach { k -> done[k.toLong()] = d.getLong(k) } }
@@ -358,6 +324,52 @@ class CameraJob : JobService() {
         }
 
         fun cancel(context: Context) = context.getSystemService(JobScheduler::class.java).cancel(ID)
+
+        /**
+         * The count of media that wait for upload, for the Camera upload screen. Off the main thread. It reads the mark
+         * with no write, so a run of the job at the same time is safe.
+         */
+        fun waiting(context: Context, s: CameraUpload): Int {
+            val folder = s.folder
+            if (!s.enabled || folder == null || !allowed(context, s)) return 0
+            return runCatching { pending(context, s, Mark(context, folder)).size }.getOrDefault(0)
+        }
+
+        /**
+         * Media under DCIM that is not done, added after the time when the user turned camera upload on. The query
+         * looks back [Mark.WINDOW_S] before the newest done item: a long video is added as pending and appears
+         * later with its first time, after newer photos (review 14).
+         */
+        private fun pending(context: Context, s: CameraUpload, mark: Mark): List<Entry> {
+            val collections = buildList {
+                add(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL))
+                if (s.videos) add(MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL))
+            }
+            val since = maxOf(s.since / 1000, mark.added - Mark.WINDOW_S)
+            val cols = arrayOf(
+                MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.MIME_TYPE, MediaStore.MediaColumns.DATE_MODIFIED, MediaStore.MediaColumns.DATE_TAKEN,
+                MediaStore.MediaColumns.SIZE,
+            )
+            val where = "${MediaStore.MediaColumns.DATE_ADDED} >= ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE 'DCIM/%'"
+            val out = ArrayList<Entry>()
+            for (collection in collections) {
+                context.contentResolver.query(collection, cols, where, arrayOf(since.toString()), null)?.use { c ->
+                    while (c.moveToNext()) {
+                        val id = c.getLong(0)
+                        val added = c.getLong(1)
+                        if (mark.isDone(id)) continue
+                        val name = c.getString(2)?.substringAfterLast('/') ?: continue
+                        out += Entry(
+                            ContentUris.withAppendedId(collection, id), id, added, name,
+                            c.getString(3) ?: FileType.mime(name), c.getLong(4) * 1000, if (c.isNull(5)) 0 else c.getLong(5),
+                            if (c.isNull(6)) -1 else c.getLong(6),
+                        )
+                    }
+                }
+            }
+            return out.sortedWith(compareBy({ it.added }, { it.id }))
+        }
     }
 }
 

@@ -30,11 +30,15 @@ files.
 5. Tap +, then "Upload a folder": pick a folder with subfolders, an empty subfolder and 20 or
    more files. Expected: the same tree in the drive, and the empty subfolder too. Compare the tree
    in the web app.
-6. Upload the same folder again. Expected: Nubo uses the folders that are there; files with the same
-   name become new versions. No second copy of the folder.
+6. Upload the same folder again. Expected: Nubo uses the folders that are there and uploads no file
+   ("All files of … are in the drive already"). Change one file on the phone and upload the folder again:
+   only that file uploads, as a new version. No second copy of the folder.
 7. Start a large upload, turn on flight mode, then turn it off. Expected: the transfer fails with a
    clear error and "Try again" works. The file in the web app is complete (download it there and
    compare the SHA-256).
+8. Upload a folder with 50 or more files. Cancel 2 files in Transfers, then close Nubo from recents
+   during the upload. Expected: each file in the web app is complete. Pick the same folder again: only
+   the missing files upload.
 
 ## 4. Download and viewers
 
@@ -69,8 +73,8 @@ files.
 
 ## 8. Photos and camera upload
 
-1. Turn on camera upload ("Only new photos"). Take a photo. Expected: it uploads within a few minutes
-   on Wi-Fi.
+1. Turn on camera upload ("Only new photos"). Expected: the dialog says that uploads have no location.
+   Take a photo. Expected: it uploads within a few minutes on Wi-Fi.
 2. Photos tab: the new photo shows; open it.
 3. Camera upload screen: "Last upload" shows the time of the last photo.
 4. Restart the phone, then take a photo. Expected: it uploads with no start of the app.
@@ -84,7 +88,11 @@ files.
    any more" on the screen and in a notification.
 9. An item that fails 3 times: it shows under "Not uploaded" (with its name), and a notification
    shows the count with no name. "Try again" sends it to Transfers.
-10. At each step: you can tell what uploaded, what waits and what needs you.
+10. A photo named `CON.jpg` under DCIM: it shows under "Not uploaded" with "This name is reserved.
+    Rename it on the phone.", and "Try again" does not send it. Rename it: "Try again" uploads it.
+11. Flight mode on, take 3 photos. Expected: "3 waiting" under Camera upload. Flight mode off: they
+    upload and the count goes.
+12. At each step: you can tell what uploaded, what waits and what needs you.
 
 ## 9. Security
 
@@ -108,6 +116,8 @@ files.
 3. Log out: Nubo is not in the picker. Log in again: it is back.
 4. App lock on: leave Nubo. Expected: Nubo is not in the picker until you open and unlock the app.
 5. Turn on flight mode and open a Nubo folder in the picker. Expected: an error text, no crash.
+6. Play a video from Nubo in another app through the picker. Turn on the app lock and leave Nubo.
+   Expected: the play goes on (an open file stays readable). Log out: the play stops with a read error.
 
 Write the results with the date and the app version in `research/device-test.md`. Mark timings as
 estimates.

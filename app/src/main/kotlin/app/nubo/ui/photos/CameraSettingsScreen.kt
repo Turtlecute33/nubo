@@ -30,6 +30,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,6 +47,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.nubo.app
 import app.nubo.data.CameraUpload
+import app.nubo.drive.NameRules
 import app.nubo.ui.Icons
 import app.nubo.ui.components.IconAction
 import app.nubo.ui.components.Notice
@@ -90,6 +92,10 @@ fun CameraSettingsScreen() {
     // The names of the items that did not upload come from MediaStore; the app does not store them. An item that is
     // not on the phone any more leaves the list.
     var skipped by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    // The count of media that wait for upload: read again at each return to the screen and each change of the status.
+    var queued by remember { mutableIntStateOf(0) }
+    var resumes by remember { mutableIntStateOf(0) }
+    LaunchedEffect(status, cam, allowed, resumes) { queued = withContext(Dispatchers.IO) { CameraJob.waiting(context, cam) } }
     LaunchedEffect(status.skipped) {
         val (found, gone) = withContext(Dispatchers.IO) { mediaNames(context, status.skipped) }
         skipped = found
@@ -102,7 +108,8 @@ fun CameraSettingsScreen() {
     /** Sends the items that did not upload to the transfer queue, where the user sees each result. */
     fun retrySkipped() {
         val folder = app.prefs.value.camera.folder ?: return
-        val uris = skipped.map { it.first }
+        val uris = skipped.filter { NameRules.problem(it.second) == null }.map { it.first }
+        if (uris.isEmpty()) return
         app.transfers.upload(folder, uris.map { it.toUri() })
         app.notifier.cameraSkippedDone()
         app.scope.launch(Dispatchers.IO) { app.cameraStatus.forget(uris) }
@@ -116,6 +123,7 @@ fun CameraSettingsScreen() {
     // The user can give or take the access in the system settings and come back.
     LifecycleResumeEffect(cam.videos) {
         allowed = CameraJob.allowed(context, cam)
+        resumes++
         onPauseOrDispose {}
     }
 
@@ -183,11 +191,10 @@ fun CameraSettingsScreen() {
                 Toggle(
                     Icons.PhotoCamera,
                     "Camera upload",
-                    when {
-                        !cam.enabled -> null
-                        status.last > 0 -> "Last upload: ${Format.dateTime(status.last)}"
-                        else -> "Nothing uploaded yet"
-                    },
+                    if (!cam.enabled) null else listOfNotNull(
+                        if (status.last > 0) "Last upload: ${Format.dateTime(status.last)}" else "Nothing uploaded yet",
+                        "$queued waiting".takeIf { queued > 0 },
+                    ).joinToString(" · "),
                     cam.enabled,
                     enabled = !busy,
                     busy = busy,
@@ -232,8 +239,11 @@ fun CameraSettingsScreen() {
             if (skipped.isNotEmpty()) {
                 item(key = "h-skipped") { SectionHeader("Not uploaded") }
                 items(skipped.take(MAX_SHOWN), key = { "s-" + it.first }) { (_, name) ->
+                    // A name that Filen refuses: a try again cannot help, the user must rename the file.
+                    val refused = NameRules.problem(name)
                     ListItem(
                         leadingContent = { Icon(Icons.Image, null) },
+                        supportingContent = refused?.let { { Text("$it. Rename it on the phone.") } },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     ) { Text(name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) }
                 }
@@ -245,7 +255,7 @@ fun CameraSettingsScreen() {
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                item(key = "skipped-retry") {
+                if (skipped.any { NameRules.problem(it.second) == null }) item(key = "skipped-retry") {
                     FilledTonalButton(onClick = ::retrySkipped, enabled = cam.folder != null, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         Text("Try again")
                     }
@@ -323,9 +333,18 @@ private fun SinceDialog(onDismiss: () -> Unit, onConfirm: (all: Boolean) -> Unit
         onDismissRequest = onDismiss,
         title = { Text("Which photos?") },
         text = {
-            Column(Modifier.selectableGroup()) {
-                Choice("New photos only", !all) { all = false }
-                Choice("All photos on this phone", all) { all = true }
+            Column {
+                Column(Modifier.selectableGroup()) {
+                    Choice("New photos only", !all) { all = false }
+                    Choice("All photos on this phone", all) { all = true }
+                }
+                // Android removes the location from the media of an app with no media location access (DESIGN §9).
+                Text(
+                    "Uploaded photos and videos have no location. Nubo does not ask for location access.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
+                )
             }
         },
         confirmButton = { TextButton(onClick = { onDismiss(); onConfirm(all) }) { Text("Turn on") } },
