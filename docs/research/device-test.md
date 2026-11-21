@@ -181,7 +181,9 @@ back after it. The phone was on mobile data.
 | 4 new photos (one is `CON.jpg`), "Only on Wi-Fi" on | "Last upload: … · 4 waiting" when the screen opens again |
 | "Only on Wi-Fi" off, "Check now" | 3 photos upload and the count goes. `CON.jpg` is under "Not uploaded" with "This name is reserved. Rename it on the phone." and no "Try again" |
 | `CON.jpg` renamed on the phone, screen opened again | The new name shows, with "Try again"; the upload in Transfers is done |
+| Upload a folder (3 files, a subfolder, an empty folder), then the same folder again | "All files of “NuboFolderTest” are in the drive already"; nothing uploads |
+| One file of it changed on the phone, the folder again | "Uploading 1 file from “NuboFolderTest”. 2 files are in the drive already" |
+| Folder of 30 × 1 MiB, `am force-stop` 3 s after the start | 2 files in the drive. The same folder again: "Uploading 28 files … 2 files are in the drive already"; then 30 files, no second copies |
 
-Not tested on the phone: the folder upload that skips the files that are in the drive (the phone locked during the
-test). The count of waiting media does not change while the screen shows; it changes at the next upload and when the
-screen opens again.
+The count of waiting media does not change while the screen shows; it changes at the next upload and when the screen
+opens again. The settings of the phone are as before the test; the test folders stay on the test account.
