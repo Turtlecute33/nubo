@@ -111,3 +111,25 @@ installed 0.2.1; the test account stayed logged in.
 Not tested: a note or chat seen in the official Filen apps (interop), a save conflict between two devices,
 rich-text notes from another app, and any chat with messages. A chat needs a second account and a
 contact request to it; the test did not send contact requests.
+
+## 2026-11-21, design feedback branch (release build, installed over 0.3.0)
+
+The test account stayed logged in. Block screenshots was off during the test and on again after it.
+
+| Test | Result |
+|---|---|
+| Unit tests, lint | 83 tests pass; lint: no issues |
+| Release APK | 3.48 MB |
+| Cold start (`am start -W`) | 598 ms |
+| File menu | Rename has its icon, in line with the other icons |
+| Notes and Chats tabs on | Six tabs; no Back arrow on the Notes and Chats roots; no Notes or Chats tile on Home or row in Me |
+| Six tabs | Only the selected label shows. **Defect**: the other tabs had no name for TalkBack. After the fix, each icon has the name |
+| Upload a folder (2 levels, an empty folder, 3 files) | The same tree in the drive, with the empty folder. The 100 KB file downloads with the same SHA-256. The folder grant is released after the upload |
+| File picker, logged out (debug build) | No root |
+| File picker, logged in | Root "Nubo / Filen drive", no email. Folders list, thumbnails show, a text file reads correctly |
+| File picker, write | Refused ("Read only"); the Files app shows no delete, rename or move |
+| File picker, unknown document | `FileNotFoundException` with no name |
+
+Not tested: camera upload status (Immich and Google Photos on this phone back up DCIM, so a test photo could go to
+other accounts), the picker with app lock on, logout (no new login on the test account), and the "Password and
+two-factor" link (the browser can hold another Filen session).
