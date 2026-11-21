@@ -139,7 +139,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:testDebugUnitTest
 ```
 
 Release builds are signed with the key that `scripts/make-release-key.sh` makes; without it,
-`assembleRelease` makes an unsigned APK. The release APK is about 3.4 MB (estimate).
+`assembleRelease` makes an unsigned APK. The release APK is about 3.5 MB (estimate).
 
 <details>
 <summary><b>How it works</b></summary>
