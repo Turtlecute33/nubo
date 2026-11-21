@@ -36,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.nubo.NuboApp
@@ -139,6 +141,8 @@ fun NewChatScreen() {
                     },
                     icon = { Icon(Icons.Chat, null) },
                     text = { Text(if (starting) "Starting…" else "Start chat") },
+                    // Material 3 1.5 hides the text of an extended button from screen readers.
+                    modifier = Modifier.semantics { contentDescription = if (starting) "Starting" else "Start chat" },
                 )
             }
         },

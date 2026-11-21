@@ -48,6 +48,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -133,7 +135,13 @@ fun ChatsScreen() {
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { nav.go(Route.NewChat) }, icon = { Icon(Icons.Chat, null) }, text = { Text("New chat") })
+            // Material 3 1.5 hides the text of an extended button from screen readers.
+            ExtendedFloatingActionButton(
+                onClick = { nav.go(Route.NewChat) },
+                icon = { Icon(Icons.Chat, null) },
+                text = { Text("New chat") },
+                modifier = Modifier.semantics { contentDescription = "New chat" },
+            )
         },
     ) { pad ->
         val refresh = rememberPullToRefreshState()

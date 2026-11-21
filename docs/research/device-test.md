@@ -85,3 +85,29 @@ folders, and entries with bad metadata). The whole tree answer is 56.8 MiB (the 
 
 The test files on the phone were deleted after the test. The synthetic drive stays on the test account for the
 next tests.
+
+## 2026-11-21, notes and chat on main after 0.2.1 (release build)
+
+Libraries of 2026-11 (Compose 1.13, material3 1.5.0), compileSdk 37.2. The release build went over the
+installed 0.2.1; the test account stayed logged in.
+
+| Test | Result |
+|---|---|
+| Unit tests, lint | 78 tests pass; lint: no issues |
+| Release APK | 3.44 MB |
+| Notes list, empty account | "No notes"; the server list and the own user ID read correctly |
+| New text note, two lines | The note is on the server: the list shows the title and the first line as preview; a new open reads both lines |
+| Change type text → checklist | Two rows, one for each line; a new open reads the checklist from the server |
+| Checklist: tick a row, add a row | Saved; a new open shows three rows, the first ticked |
+| Pin, favourite, rename | Correct after the list read; the pinned note stays first above a newer note |
+| Markdown note, search "second" | Only the matching note shows |
+| Archive, trash of an archived note, restore | Archive view, then Trash view; restore puts the note back in Notes (N-65) |
+| Trashed note | Opens read only ("In the trash · read only") |
+| Edit, then Home at once (before the 1.5 s delay) | Saved: the list preview after the return has the new text |
+| Delete for ever (2 notes) | Trash empty, Notes empty |
+| Chats list, New chat | Both read from the server with no error (no chats, no contacts, no requests on this account). The list stays correct after 40 s of polling |
+| Screen reader labels | Material 3 1.5 hides the text of an extended button from screen readers: "New note", "New chat" and "Start chat" had no label. Fixed with a content description |
+
+Not tested: a note or chat seen in the official Filen apps (interop), a save conflict between two devices,
+rich-text notes from another app, and any chat with messages. A chat needs a second account and a
+contact request to it; the test did not send contact requests.

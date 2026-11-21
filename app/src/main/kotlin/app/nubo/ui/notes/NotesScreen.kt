@@ -57,6 +57,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.nubo.NuboApp
@@ -168,6 +170,8 @@ fun NotesScreen() {
                     },
                     icon = { Icon(Icons.EditNote, null) },
                     text = { Text("New note") },
+                    // Material 3 1.5 hides the text of an extended button from screen readers.
+                    modifier = Modifier.semantics { contentDescription = "New note" },
                 )
             }
         },
