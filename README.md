@@ -112,7 +112,7 @@ Nubo needs Android 15 or later. It has no native code, so the same APK runs on a
 
 ## Build
 
-Requirements: JDK 21 and the Android SDK with platform 37.
+Requirements: JDK 21 and the Android SDK with platform 37.2.
 
 ```sh
 JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:assembleDebug     # app ID app.nubo.debug

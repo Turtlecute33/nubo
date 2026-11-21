@@ -20,7 +20,10 @@ fun keychain(service: String): Provider<String> =
 
 android {
     namespace = "app.nubo"
-    compileSdk = 37
+    // 37.2: Compose 1.13 (BOM 2026.11.01) needs Android 37.1 APIs or later at compile time.
+    compileSdk {
+        version = release(37) { minorApiLevel = 2 }
+    }
 
     defaultConfig {
         applicationId = "app.nubo"
