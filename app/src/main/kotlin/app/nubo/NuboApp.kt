@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.StrictMode
 import app.nubo.api.Api
+import app.nubo.chat.Chats
 import app.nubo.data.Account
 import app.nubo.data.AccountState
 import app.nubo.data.Prefs
@@ -58,6 +59,7 @@ class NuboApp : Application() {
     val transfers by lazy { Transfers(this) }
     val notifier by lazy { Notifier(this) }
     val notes by lazy { Notes(drive, account) }
+    val chats by lazy { Chats(drive, account) }
 
     private val _ready = MutableStateFlow(false)
 
@@ -96,6 +98,7 @@ class NuboApp : Application() {
         CameraJob.cancel(this)
         drive.clear()
         notes.clear()
+        chats.clear()
         Viewers.clear()
         LinkSessions.clear()
         withContext(Dispatchers.IO) {

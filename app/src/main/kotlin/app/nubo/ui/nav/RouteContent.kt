@@ -2,6 +2,9 @@ package app.nubo.ui.nav
 
 import androidx.compose.runtime.Composable
 import app.nubo.drive.Listing
+import app.nubo.ui.chat.ChatScreen
+import app.nubo.ui.chat.ChatsScreen
+import app.nubo.ui.chat.NewChatScreen
 import app.nubo.ui.drive.FolderScreen
 import app.nubo.ui.home.HomeScreen
 import app.nubo.ui.links.PublicLinkScreen
@@ -33,6 +36,9 @@ fun RouteContent(route: Route) {
         Route.Search -> SearchScreen()
         Route.Notes -> NotesScreen()
         is Route.Note -> NoteScreen(route.uuid)
+        Route.Chats -> ChatsScreen()
+        is Route.Chat -> ChatScreen(route.uuid)
+        Route.NewChat -> NewChatScreen()
         Route.Transfers -> TransfersScreen()
         Route.Settings -> SettingsScreen()
         Route.CameraSettings -> CameraSettingsScreen()

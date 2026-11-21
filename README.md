@@ -19,8 +19,8 @@ End-to-end encrypted, fast and private. No trackers, no Google Play Services, no
 ## About
 
 Nubo is an unofficial app for [Filen](https://filen.io), the end-to-end encrypted cloud storage. It
-shows your drive, your photos, your shares and your notes, and it moves files in both directions.
-Your data is encrypted and decrypted on the phone: Filen gets only encrypted data.
+shows your drive, your photos, your shares, your notes and your chats, and it moves files in both
+directions. Your data is encrypted and decrypted on the phone: Filen gets only encrypted data.
 
 Nubo is new code in Kotlin. The Filen protocol and its encryption follow the
 open Filen SDKs and their published test values. The interface is Jetpack Compose with Material 3
@@ -39,6 +39,8 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
 - **Offline files**: keep files on the phone and open them with no network.
 - **Notes**: text, checklist, Markdown and code notes that save while you type. Pin, favourite,
   archive, trash and search. Rich-text notes from the other Filen apps show as plain text.
+- **Chat**: end-to-end encrypted chats with your Filen contacts. Reply, edit and delete messages,
+  start a chat with one or more contacts, and send or accept contact requests.
 - **Sharing**: public links with an expiry date and a password (a paid Filen plan is necessary for
   links), read-only shares with other Filen users, and public Filen links that open in the app with
   no account.
@@ -64,9 +66,9 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
   cleartext traffic, system certificates only (a certificate that you or an admin add is not
   trusted), certificate transparency on Android 16 and later, and no backups. Touches through the
   overlays of other apps are dropped, and the keyboard does not learn from passwords, codes, names,
-  links or notes.
-- **Notes stay in memory.** Nubo keeps no copy of them on the disk. Note HTML shows as text only:
-  Nubo never runs it as HTML and never loads a link from it.
+  links, notes or chat messages.
+- **Notes and chats stay in memory.** Nubo keeps no copy of them on the disk. Note HTML and chat text
+  show as text only: Nubo never runs them as HTML and never loads a link or an avatar from them.
 - **App lock** (optional) uses your fingerprint or your screen lock. It hides the app and its
   preview in recent apps; it does not encrypt data.
 - **Logout** deletes the session, the offline files, the thumbnails and the queued transfers from
@@ -80,6 +82,9 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
   - `ingest.filen.io`: uploads.
   - `egest.filen.io`: downloads. Downloads and public links carry no account key.
 - The user agent is `nubo` on every phone. No device ID, install ID or push token.
+- Chat has no live connection. While a chat or the chat list is on the screen, Nubo asks Filen
+  every 5 seconds whether something changed. In the background it asks nothing, so it shows no
+  notification of new messages. It does not send "typing" or "online" signals.
 - Search runs on the phone. Nubo does not use Filen's server-side search index, which would upload
   hashes of parts of your file names.
 - Camera upload does not ask for access to the location of your media, so Android removes the GPS
@@ -142,16 +147,16 @@ Release builds are signed with the key that `scripts/make-release-key.sh` makes;
   browser sends to a server.
 - **Writes** take the same "drive-write" lock as the official apps, so they do not race with
   Filen's desktop sync. Note writes take their "notes-write" lock.
-- **Notes**: each note has its own key. Each participant gets a copy of that key, encrypted with
-  their RSA public key (RSA-OAEP-SHA512). Titles and note content are encrypted with it in the Filen
-  `002` format.
+- **Notes and chats**: each note and each chat has its own key. Each participant gets a copy of
+  that key, encrypted with their RSA public key (RSA-OAEP-SHA512). Titles, note content and messages
+  are encrypted with it in the Filen `002` format.
 - **Background work**: transfers that you start run as a user-initiated data transfer job, with a
   notification. Camera upload is a job that runs when new media come; a boot receiver schedules it
   again after a reboot.
 
 The design notes are in [docs/DESIGN.md](docs/DESIGN.md), the protocol research in
-[docs/research/protocol.md](docs/research/protocol.md) and
-[notes.md](docs/research/notes.md).
+[docs/research/protocol.md](docs/research/protocol.md), [notes.md](docs/research/notes.md) and
+[chat.md](docs/research/chat.md).
 
 </details>
 
@@ -180,7 +185,7 @@ No storage permission: uploads use the system file and photo pickers, and downlo
 - `app/src/main/kotlin/app/nubo/api`, `net`: the API envelope, login, and HTTPS through the
   platform HttpEngine (Cronet).
 - `app/src/main/kotlin/app/nubo/drive`: listings, writes, sharing, links, upload and download.
-- `app/src/main/kotlin/app/nubo/notes`: notes.
+- `app/src/main/kotlin/app/nubo/notes`, `chat`: notes, chats and contacts.
 - `app/src/main/kotlin/app/nubo/transfer`, `work`: the transfer queue, camera upload and
   notifications.
 - `app/src/main/kotlin/app/nubo/media`, `offline`: thumbnails, streamed reads, "Open with" and
@@ -199,11 +204,11 @@ Run the JVM tests, lint and the two builds:
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
 
-The tests (76) cover the crypto against the known-answer values of the Filen SDK, the v2 login with
+The tests (78) cover the crypto against the known-answer values of the Filen SDK, the v2 login with
 two-factor codes against a scripted server, the download order, size and hash checks, the chunk
 count, name rules, item decoding, sort order, the settings file, link URLs and link passwords, the
-retry rule, the error texts, camera upload errors, search, the viewer cache, the note
-encryption, the checklist format and note previews.
+retry rule, the error texts, camera upload errors, search, the viewer cache, the note and chat
+encryption, the checklist format, note previews and the unread rule of chats.
 
 On a Pixel 9 Pro XL with GrapheneOS and a test account with synthetic files, these steps were
 tested: login, upload (empty, exactly 1 MiB and larger files), a download with the same SHA-256

@@ -26,6 +26,14 @@ sealed interface Route {
 
     /** A note editor. Only the ID: no title goes into the saved state. */
     data class Note(val uuid: String) : Route
+
+    data object Chats : Route
+
+    /** A chat. Only the ID: no name goes into the saved state. */
+    data class Chat(val uuid: String) : Route
+
+    /** Contacts and contact requests, to start a chat. */
+    data object NewChat : Route
     data object Transfers : Route
     data object Settings : Route
     data object CameraSettings : Route

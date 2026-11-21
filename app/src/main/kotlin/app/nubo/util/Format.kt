@@ -34,6 +34,13 @@ object Format {
 
     fun dateTime(ms: Long): String = if (ms <= 0) "" else format(ms, DateFormat.MEDIUM, DateFormat.SHORT)
 
+    /** The time for today, else the date and the time: chat messages. */
+    fun time(ms: Long): String = when {
+        ms <= 0 -> ""
+        DateUtils.isToday(ms) -> format(ms, -1, DateFormat.SHORT)
+        else -> dateTime(ms)
+    }
+
     /** A long date for headers in the photo timeline. */
     fun day(ms: Long): String = when {
         DateUtils.isToday(ms) -> "Today"
@@ -56,7 +63,11 @@ object Format {
             formatsLocale = locale
         }
         val f = formats.getOrPut(date * 10 + time + 1) {
-            if (time < 0) DateFormat.getDateInstance(date, locale) else DateFormat.getDateTimeInstance(date, time, locale)
+            when {
+                time < 0 -> DateFormat.getDateInstance(date, locale)
+                date < 0 -> DateFormat.getTimeInstance(time, locale)
+                else -> DateFormat.getDateTimeInstance(date, time, locale)
+            }
         }
         f.timeZone = TimeZone.getDefault()
         return f.format(Date(ms))

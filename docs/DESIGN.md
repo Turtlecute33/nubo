@@ -16,8 +16,8 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
   recents; transfers; viewers for images, video, audio, text and PDF; app lock; settings.
   Extras: photo timeline and camera upload; public links and shares with Filen users; offline files;
   public Filen links open in the app.
-- Notes (owner, 2026-11-20, after tester feedback): Filen notes (§12). They open from Home and Me; the
-  four tabs stay.
+- Notes and chat (owner, 2026-11-20, after tester feedback): Filen notes (§12) and Filen chat (§13). They
+  open from Home and Me; the four tabs stay.
 - App lock: a screen lock, optional, off by default. It does not encrypt data (§7).
 - Repository: public on GitHub, `Turtlecute33/nubo`. Releases there and on Zapstore.
 - Protocol: a clean-room Kotlin version. The code reference is the MIT Go SDK (`filen-sdk-go`).
@@ -35,10 +35,13 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 ## 3. Non-goals
 
 - No account creation, no password change, no 2FA setup, no plan or invoice screens.
-- No two-way folder sync, no chat, no contacts screen, no file versions screen.
+- No two-way folder sync, no file versions screen.
 - Notes: no tags, no note history, no sharing of notes with other users, no edit of rich-text notes (§12).
+- Chat: no attachments, no link previews, no avatars, no typing or presence, no add or remove of
+  participants after the start, no chat notifications or checks in the background (§13).
+- Contacts: only what a chat needs (list, send a request, accept, deny). No remove, no block.
 - No server-side search index (F-68, F-91).
-- No WebSocket events (F-18).
+- No WebSocket events (F-18). An open chat screen polls instead (§13).
 - No folder upload (single and multiple files only).
 - No write access in folders that other users share with me (read and download only).
 - No v3 file links: a v3 file key does not fit the link URL (F-77).
@@ -48,7 +51,7 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 - One `:app` module. One `ComponentActivity`. Compose only.
 - The object graph is in `NuboApp` (`by lazy`), reached with `Context.app`. No DI framework.
 - Packages: `crypto` (formats and key derivation), `api` (HTTP envelope, login), `net` (HttpEngine),
-  `drive` (listings, writes, sharing, links, upload, download), `notes`,
+  `drive` (listings, writes, sharing, links, upload, download), `notes`, `chat` (with contacts),
   `offline`, `media` (thumbnails, chunk reader, open-with provider), `transfer`, `work` (camera job,
   notifications), `data` (vault, session, settings), `ui`.
 - Navigation: four tabs (Home, Drive, Photos, Me), each with its own back stack in `Navigator`
@@ -86,7 +89,7 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 | Thumbnails | `cacheDir/thumbs/<hash>` | AES-256-GCM with the session cache key |
 | Camera upload mark | `noBackupFilesDir/camera-mark.json` | Not secret: a MediaStore ID and a time |
 | Logout mark | `noBackupFilesDir/wipe-pending` | Empty; the next start finishes a stopped wipe (review 74) |
-| Notes and their keys | Memory only | Not on the disk; gone at logout and when the process ends |
+| Notes, chats, contacts, their keys | Memory only | Not on the disk; gone at logout and when the process ends |
 
 - The cache key is 32 random bytes made at login. It lives only in the encrypted session.
 - No plain file content goes to the disk. Viewers read chunks into memory. "Open with" and "Send a
@@ -109,10 +112,11 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 - Copied links are sensitive clips. The app clears the clip when the user comes back to the app, or after
   1 minute in the app, if the clip is still its own (review 49).
 - Tapjacking: the window drops touches that go through an overlay of another app.
-- The keyboard does not learn from the password, code, search, link, name and note fields
+- The keyboard does not learn from the password, code, search, link, name, note and chat fields
   (`IME_FLAG_NO_PERSONALIZED_LEARNING`).
-- Note HTML (rich text, checklists) comes from other users too. Nubo never renders it as HTML or loads a
-  URL from it: it shows text only (N-93).
+- Note HTML (rich text, checklists) and chat text come from other users too. Nubo never renders them as
+  HTML or loads a URL from them: it shows text only (N-93, C-82).
+- A copied chat message is a sensitive clip with the same clear rule as a link (review 49).
 - Logs: no names, keys, links or server messages. `Item`, `Session`, `Links.Parsed` and the routes
   print only IDs. Release builds remove `Log.v/d/i`.
 - Incoming shares: only content URIs of other apps (no `@` in the authority), at most 500, and only the
@@ -130,7 +134,7 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 ## 8. Network and privacy
 
 - Hosts: `gateway.filen.io` (API), `ingest.filen.io` (upload), `egest.filen.io` (download). No
-  fallback hosts, no CDN config, no WebSocket (F-12..F-18, F-91). Notes use the gateway only.
+  fallback hosts, no CDN config, no WebSocket (F-12..F-18, F-91). Notes and chat use the gateway only.
 - HTTPS only, system CAs only, certificate transparency on Android 16 and later (Android 15 ignores the
   setting; review 73). No pinning: Filen publishes no pins (F-16).
 - User agent `nubo`, the same on every device. No device ID, install ID or push token (F-92, F-93).
@@ -173,13 +177,14 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 
 - Unit tests (JVM, no Robolectric, no mocks): crypto against the `filen-rs` known-answer values;
   the v2 login with 2FA against a scripted server; download order, size and hash checks; name rules;
-  item decoding; sort order; settings file; link URLs and link passwords; note keys and formats
-  against the vectors of the research (N-71); checklist HTML, previews and type conversions.
+  item decoding; sort order; settings file; link URLs and link passwords; note and chat keys and
+  formats against the vectors of the research (N-71, C-62); checklist HTML, previews and type
+  conversions; the unread rule of chats.
 - Not tested by the developer: anything against the real Filen servers. Live tests are for the owner
   only ([LIVE-TESTS.md](LIVE-TESTS.md)).
 - Not tested yet: v1 and v3 accounts with real data, camera upload on a real phone, the PDF and media
-  viewers on a real phone. Notes against the real servers (the open VERIFY points of
-  research/notes.md).
+  viewers on a real phone. Notes and chat against the real servers (the open VERIFY points of the two
+  research files), and a chat between two accounts.
 
 ## 12. Notes
 
@@ -199,3 +204,21 @@ Facts: [research/notes.md](research/notes.md) (`N-nn`).
   it, Nubo keeps both (the local text goes to a new note "… (conflict)") and shows the other text (N-69).
 - Size: a content of 1 048 575 encrypted characters or more is refused before the write (N-55).
 
+## 13. Chat
+
+Facts: [research/chat.md](research/chat.md) (`C-nn`).
+
+- Screens: the chat list (newest first, unread as the official apps count it, C-19), a chat (pages of
+  messages, reply, edit and delete of own messages, copy) and "New chat" (contacts, contact requests).
+  Menu: mute (for the Filen apps), rename and delete for the owner, leave for others.
+- Keys: a new chat gets a 32-character key (`002`, C-30). Each participant gets a copy wrapped with RSA-OAEP
+  for the public key of their contact entry; the owner also gets an account-key copy (C-32, C-33). If an
+  add fails, Nubo deletes the new chat (C-02).
+- No WebSocket. While a chat or the chat list shows (lifecycle RESUMED), Nubo reads `/v3/messageIds` each 5 s
+  and reads again when the chat counter moves, and at least each 30 s (C-40, C-41). In the background it
+  checks nothing, so it shows no notification of new messages. Typing and presence calls are not sent
+  (C-84).
+- Read: Nubo sets the focus time and the server read mark together (C-19, C-80), when a chat opens, after
+  each own send, and when new messages of others come in.
+- Sends have no automatic retry (C-76). A send that fails keeps the text in the field.
+- Size: a message of 65 536 encrypted characters or more is refused before the send (C-12).
