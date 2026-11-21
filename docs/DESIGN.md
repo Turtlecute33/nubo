@@ -42,7 +42,6 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 - Contacts: only what a chat needs (list, send a request, accept, deny). No remove, no block.
 - No server-side search index (F-68, F-91).
 - No WebSocket events (F-18). An open chat screen polls instead (§13).
-- No folder upload (single and multiple files only).
 - No write access in folders that other users share with me (read and download only).
 - No v3 file links: a v3 file key does not fit the link URL (F-77).
 

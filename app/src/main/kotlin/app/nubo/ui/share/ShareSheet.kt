@@ -50,6 +50,7 @@ import app.nubo.ui.components.ConfirmDialog
 import app.nubo.ui.components.IconAction
 import app.nubo.ui.components.LoadingBox
 import app.nubo.ui.components.PrivateTextInput
+import app.nubo.ui.components.SectionHeader
 import app.nubo.ui.components.userText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -121,7 +122,7 @@ fun ShareSheet(item: Item, onDismiss: () -> Unit) {
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it.take(254) },
-                    label = { Text("Email of a Filen account") },
+                    label = { Text("Filen account email") },
                     singleLine = true,
                     enabled = !busy,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Send),
@@ -150,12 +151,7 @@ fun ShareSheet(item: Item, onDismiss: () -> Unit) {
                     }
                 }
             }
-            Text(
-                "Shared with",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
-            )
+            SectionHeader("Shared with", inset = 24.dp)
             val list = users
             when {
                 list == null && error == null -> LoadingBox(Modifier.padding(vertical = 24.dp))
@@ -174,11 +170,6 @@ fun ShareSheet(item: Item, onDismiss: () -> Unit) {
                     ) { Text(user.email, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) }
                 }
             }
-            Note(
-                Icons.PrivacyTip,
-                "Receivers can open and download ${if (item.folder) "the folder and everything in it" else "the file"}, but not change it. " +
-                    "Names and content stay end-to-end encrypted. Filen sees who shares with whom.",
-            )
         }
     }
     removing?.let { user ->

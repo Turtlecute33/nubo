@@ -42,7 +42,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -174,7 +173,6 @@ fun PublicLinkScreen(link: Links.Parsed, onClose: () -> Unit) {
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (val o = opened) {
                 is Opened.File -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    LinkHeader()
                     FileCard(o.item) { openFile(o.item, listOf(o.item)) }
                 }
                 is Opened.Folder -> {
@@ -223,9 +221,7 @@ private fun PasswordForm(password: String, onPassword: (String) -> Unit, error: 
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        LinkHeader()
-        Spacer(Modifier.height(24.dp))
-        EmptyState(Icons.Lock, "This link has a password", message = "Ask the person who sent the link for it.")
+        EmptyState(Icons.Lock, "This link has a password")
         PrivateTextInput {
             OutlinedTextField(
                 value = password,
@@ -245,13 +241,6 @@ private fun PasswordForm(password: String, onPassword: (String) -> Unit, error: 
         Button(onClick = onOpen, enabled = ready, modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().height(52.dp)) {
             if (busy) LoadingIndicator(Modifier.size(26.dp), color = MaterialTheme.colorScheme.onPrimary) else Text("Open")
         }
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "The password is checked with a hash. It does not leave this phone as text.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 

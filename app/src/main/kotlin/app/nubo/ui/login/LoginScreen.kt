@@ -122,7 +122,7 @@ fun LoginScreen() {
                 Text("Nubo", style = MaterialTheme.typography.headlineLarge)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Log in with your Filen account. Your password and your files are decrypted only on this phone.",
+                    "Log in with your Filen account",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,

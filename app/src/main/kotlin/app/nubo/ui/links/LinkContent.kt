@@ -15,13 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,8 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,32 +46,13 @@ import app.nubo.ui.components.ErrorState
 import app.nubo.ui.components.ItemCollection
 import app.nubo.ui.components.ItemThumb
 import app.nubo.ui.components.LoadingBox
+import app.nubo.ui.components.SheetAction
 import app.nubo.ui.drive.rememberFolder
 import app.nubo.ui.drive.rememberSorted
 import app.nubo.util.Format
 
 /** Folders first, then by name. */
 private val ByName = FolderView()
-
-/** The explanation at the top of a link: no account is used, and the key stays on the phone. */
-@Composable
-internal fun LinkHeader() {
-    Surface(
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Encrypted, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-            Spacer(Modifier.width(12.dp))
-            Text(
-                "Opened without your account. The key is in the link and stays on this phone, so Filen cannot read these files.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        }
-    }
-}
 
 /**
  * One shared file: its icon, name and size, Open and Download. The progress of the download shows here,
@@ -149,10 +126,9 @@ internal fun LinkFolder(link: FolderLink, uuid: String, onFolder: (Item) -> Unit
     var menu by remember { mutableStateOf<Item?>(null) }
     when {
         folder.items == null && folder.error != null -> ErrorState(folder.error.orEmpty(), folder::refresh, Modifier.fillMaxSize())
-        items == null -> Column(Modifier.fillMaxSize()) {
-            LinkHeader()
-            if (folder.items == null) LoadingBox(Modifier.padding(top = 48.dp)) // Else the first sort runs (one frame).
-        }
+        folder.items == null -> LoadingBox(Modifier.fillMaxSize())
+        items == null -> Unit // The first sort runs (one frame).
+        items.isEmpty() -> EmptyState(Icons.Folder, "This folder is empty", Modifier.fillMaxSize())
         else -> ItemCollection(
             items = items,
             grid = false,
@@ -161,12 +137,6 @@ internal fun LinkFolder(link: FolderLink, uuid: String, onFolder: (Item) -> Unit
             onLongClick = { menu = it },
             onMore = { menu = it },
             contentPadding = PaddingValues(bottom = 96.dp),
-            header = {
-                Column {
-                    LinkHeader()
-                    if (items.isEmpty()) EmptyState(Icons.Folder, "This folder is empty", Modifier.fillMaxWidth().padding(top = 32.dp))
-                }
-            },
         )
     }
     menu?.let { item ->
@@ -177,28 +147,19 @@ internal fun LinkFolder(link: FolderLink, uuid: String, onFolder: (Item) -> Unit
                     Spacer(Modifier.width(16.dp))
                     Text(item.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.MiddleEllipsis)
                 }
-                MenuRow(Icons.OpenInNew, "Open") {
+                HorizontalDivider()
+                SheetAction(Icons.OpenInNew, "Open", {
                     menu = null
                     if (item.folder) onFolder(item) else onFile(item, items.orEmpty())
-                }
+                })
                 if (!item.folder) {
-                    MenuRow(Icons.Download, "Download") {
+                    SheetAction(Icons.Download, "Download", {
                         menu = null
                         app.transfers.download(listOf(item))
                         app.messenger.show("Saving to Download/Nubo")
-                    }
+                    })
                 }
             }
         }
     }
-}
-
-@Composable
-private fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
-    ListItem(
-        onClick = onClick,
-        leadingContent = { Icon(icon, null) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.padding(horizontal = 8.dp),
-    ) { Text(label) }
 }

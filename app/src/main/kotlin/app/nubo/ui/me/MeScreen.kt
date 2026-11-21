@@ -42,6 +42,7 @@ import app.nubo.drive.Usage
 import app.nubo.ui.Icons
 import app.nubo.ui.components.ConfirmDialog
 import app.nubo.ui.components.SectionHeader
+import app.nubo.ui.components.SettingRow
 import app.nubo.ui.components.openLink
 import app.nubo.ui.nav.LocalNav
 import app.nubo.ui.nav.Route
@@ -72,21 +73,21 @@ fun MeScreen() {
         item(key = "usage") { UsageCard(usage.usage, usage.error) { usage.load(force = true) } }
         item(key = "h-places") { SectionHeader("Places") }
         // A place with its own tab gets no row here.
-        if (!settings.notesTab) item(key = "notes") { Row(Icons.StickyNote, "Notes", null) { nav.go(Route.Notes) } }
-        if (!settings.chatsTab) item(key = "chats") { Row(Icons.Chat, "Chats", null) { nav.go(Route.Chats) } }
-        item(key = "transfers") { Row(Icons.SwapVert, "Transfers", null) { nav.go(Route.Transfers) } }
-        item(key = "offline") { Row(Icons.OfflinePin, "Offline files", null) { nav.go(Route.Folder(Listing.Offline, "Offline")) } }
-        item(key = "shared-in") { Row(Icons.Group, "Shared with me", null) { nav.go(Route.Folder(Listing.SharedIn, "Shared with me")) } }
-        item(key = "shared-out") { Row(Icons.FolderSharedFill, "Shared by me", null) { nav.go(Route.Folder(Listing.SharedOut, "Shared by me")) } }
-        item(key = "links") { Row(Icons.Link, "Public links", null) { nav.go(Route.Folder(Listing.Links, "Public links")) } }
-        item(key = "trash") { Row(Icons.Delete, "Trash", null) { nav.go(Route.Folder(Listing.Trash, "Trash")) } }
+        if (!settings.notesTab) item(key = "notes") { Place(Icons.StickyNote, "Notes") { nav.go(Route.Notes) } }
+        if (!settings.chatsTab) item(key = "chats") { Place(Icons.Chat, "Chats") { nav.go(Route.Chats) } }
+        item(key = "transfers") { Place(Icons.SwapVert, "Transfers") { nav.go(Route.Transfers) } }
+        item(key = "offline") { Place(Icons.OfflinePin, "Offline files") { nav.go(Route.Folder(Listing.Offline, "Offline")) } }
+        item(key = "shared-in") { Place(Icons.Group, "Shared with me") { nav.go(Route.Folder(Listing.SharedIn, "Shared with me")) } }
+        item(key = "shared-out") { Place(Icons.FolderSharedFill, "Shared by me") { nav.go(Route.Folder(Listing.SharedOut, "Shared by me")) } }
+        item(key = "links") { Place(Icons.Link, "Public links") { nav.go(Route.Folder(Listing.Links, "Public links")) } }
+        item(key = "trash") { Place(Icons.Delete, "Trash") { nav.go(Route.Folder(Listing.Trash, "Trash")) } }
         item(key = "h-app") { SectionHeader("App") }
         item(key = "camera") {
-            Row(Icons.PhotoCamera, "Camera upload", if (settings.camera.enabled) "On" else "Off") { nav.go(Route.CameraSettings) }
+            SettingRow(Icons.PhotoCamera, "Camera upload", if (settings.camera.enabled) "On" else "Off", Icons.ChevronRight) { nav.go(Route.CameraSettings) }
         }
-        item(key = "settings") { Row(Icons.Palette, "Settings", "Theme, app lock, screenshots, cache") { nav.go(Route.Settings) } }
+        item(key = "settings") { Place(Icons.Palette, "Settings") { nav.go(Route.Settings) } }
         // Nubo does not change the password, two-factor or the recovery key: the Filen web app does.
-        item(key = "security") { Row(Icons.Shield, "Password and two-factor", "Opens Filen in your browser") { openLink(context, SECURITY_URL) } }
+        item(key = "security") { SettingRow(Icons.Shield, "Password and two-factor", trailing = Icons.OpenInNew) { openLink(context, SECURITY_URL) } }
         item(key = "logout") {
             ListItem(
                 onClick = { leaving = true },
@@ -98,7 +99,7 @@ fun MeScreen() {
     if (leaving) {
         ConfirmDialog(
             title = "Log out?",
-            text = "Nubo deletes the session, the offline files, the thumbnails and the queued transfers from this phone. Your files stay in your Filen drive.",
+            text = "Nubo removes the offline files and the queued transfers from this phone. Your files stay in your Filen drive.",
             confirm = "Log out",
             destructive = true,
             // The app scope: this screen goes away during the logout, and the cleanup must finish.
@@ -139,16 +140,9 @@ private fun UsageCard(usage: Usage?, error: String?, onRetry: () -> Unit) {
     }
 }
 
+/** A row that opens a screen of the app. */
 @Composable
-private fun Row(icon: ImageVector, title: String, text: String?, onClick: () -> Unit) {
-    ListItem(
-        onClick = onClick,
-        leadingContent = { Icon(icon, null) },
-        supportingContent = text?.let { { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) } },
-        trailingContent = { Icon(Icons.ChevronRight, null) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-    ) { Text(title) }
-}
+private fun Place(icon: ImageVector, title: String, onClick: () -> Unit) = SettingRow(icon, title, trailing = Icons.ChevronRight, onClick = onClick)
 
 /** The security settings of the Filen web app (password, two-factor, recovery key). */
 private const val SECURITY_URL = "https://app.filen.io/#/settings/security"

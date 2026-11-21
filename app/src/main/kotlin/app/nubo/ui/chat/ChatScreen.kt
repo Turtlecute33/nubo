@@ -270,7 +270,7 @@ fun ChatScreen(uuid: String) {
                     !model.loaded && model.error != null -> ErrorState(model.error.orEmpty(), { scope.launch { model.load() } }, Modifier.fillMaxSize())
                     !model.loaded -> LoadingBox(Modifier.fillMaxSize())
                     c?.key == null -> EmptyState(Icons.Lock, "Cannot decrypt this chat", Modifier.fillMaxSize())
-                    messages.isEmpty() -> EmptyState(Icons.Chat, "No messages", Modifier.fillMaxSize(), message = "Messages are encrypted on this phone before they go to Filen.")
+                    messages.isEmpty() -> EmptyState(Icons.Chat, "No messages", Modifier.fillMaxSize())
                     else -> LazyColumn(
                         Modifier.fillMaxSize(),
                         state = list,

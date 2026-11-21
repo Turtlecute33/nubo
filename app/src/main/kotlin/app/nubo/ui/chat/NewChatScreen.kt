@@ -180,7 +180,7 @@ fun NewChatScreen() {
                             Icons.PersonAdd,
                             "No contacts",
                             Modifier.fillMaxWidth(),
-                            message = "Add a contact with the email of their Filen account. You can chat when they accept.",
+                            message = "Add a contact with the email of their Filen account.",
                             actionLabel = "Add a contact",
                             onAction = { adding = true },
                         )
@@ -205,7 +205,7 @@ fun NewChatScreen() {
                     items(outgoing, key = { "out-" + it.uuid }) { r ->
                         ListItem(
                             leadingContent = { Initial(r.person.name, 40.dp) },
-                            supportingContent = { Text("Waits for an answer") },
+                            supportingContent = { Text("Pending") },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         ) { Text(r.person.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }

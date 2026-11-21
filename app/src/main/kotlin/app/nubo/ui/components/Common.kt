@@ -16,6 +16,8 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,6 +50,8 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import app.nubo.api.ApiException
@@ -94,37 +98,76 @@ fun PrivateTextInput(content: @Composable () -> Unit) = InterceptPlatformTextInp
     content = content,
 )
 
-/** The title of a group of list rows. */
+/** The title of a group of list rows. [inset] is the left margin: 16 dp on a screen, 24 dp in a sheet. */
 @Composable
-fun SectionHeader(text: String, modifier: Modifier = Modifier) {
+fun SectionHeader(text: String, modifier: Modifier = Modifier, inset: Dp = 16.dp) {
     Text(
         text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(start = 16.dp, top = 20.dp, bottom = 6.dp),
+        modifier = modifier.padding(start = inset, end = inset, top = 20.dp, bottom = 6.dp),
     )
 }
 
-/** A list row with a switch. The full row is the touch target. [busy] shows a loading indicator in place of the switch. */
+/**
+ * A list row with a switch. The full row is the touch target. [text] is for a state or a condition that the
+ * title does not tell; it does not say the title again. [busy] shows a loading indicator in place of the switch.
+ */
 @Composable
 fun Toggle(
     icon: ImageVector,
     title: String,
-    text: String,
+    text: String?,
     checked: Boolean,
+    modifier: Modifier = Modifier,
     enabled: Boolean = true,
     busy: Boolean = false,
     onChange: (Boolean) -> Unit,
 ) {
     ListItem(
         leadingContent = { Icon(icon, null) },
-        supportingContent = { Text(text) },
+        supportingContent = text?.let { { Text(it) } },
         trailingContent = {
             if (busy) LoadingIndicator(Modifier.size(32.dp)) else Switch(checked = checked, onCheckedChange = null, enabled = enabled)
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
+        modifier = modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
     ) { Text(title) }
+}
+
+/**
+ * A list row of a settings screen: an icon, a title and an optional value. [trailing] tells where a tap goes: a
+ * chevron for a screen of the app, [app.nubo.ui.Icons.OpenInNew] for the browser, nothing for an action in place.
+ * With no [onClick] the row only shows its value.
+ */
+@Composable
+fun SettingRow(icon: ImageVector, title: String, text: String? = null, trailing: ImageVector? = null, onClick: (() -> Unit)? = null) {
+    val leading: @Composable () -> Unit = { Icon(icon, null) }
+    val supporting: (@Composable () -> Unit)? = text?.let { { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } }
+    val end: (@Composable () -> Unit)? = trailing?.let { { Icon(it, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
+    val colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    if (onClick == null) {
+        ListItem(leadingContent = leading, supportingContent = supporting, trailingContent = end, colors = colors) { Text(title) }
+    } else {
+        ListItem(onClick = onClick, leadingContent = leading, supportingContent = supporting, trailingContent = end, colors = colors) { Text(title) }
+    }
+}
+
+/** A problem that needs the user: a title, one sentence and one button. */
+@Composable
+fun Notice(title: String, text: String, action: String, onAction: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(12.dp))
+            FilledTonalButton(onClick = onAction) { Text(action) }
+        }
+    }
 }
 
 @Composable

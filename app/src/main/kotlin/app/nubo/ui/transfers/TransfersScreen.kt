@@ -1,6 +1,8 @@
 package app.nubo.ui.transfers
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -23,6 +26,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -75,7 +79,7 @@ fun TransfersScreen() {
                         Spacer(Modifier.height(12.dp))
                         LinearWavyProgressIndicator(progress = { summary.progress }, modifier = Modifier.fillMaxWidth())
                         Spacer(Modifier.height(8.dp))
-                        Text("${Format.size(summary.done)} / ${Format.size(summary.size)}", style = MaterialTheme.typography.bodySmall)
+                        Text("${Format.size(summary.done)} of ${Format.size(summary.size)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -97,7 +101,12 @@ private fun Row(t: Transfer, modifier: Modifier) {
                     Transfer.Kind.DOWNLOAD -> Icons.ArrowDownward
                     Transfer.Kind.OFFLINE -> Icons.OfflinePin
                 }
-                Icon(badge, null, Modifier.size(16.dp).padding(0.dp), tint = MaterialTheme.colorScheme.primary)
+                Icon(
+                    badge,
+                    null,
+                    Modifier.align(Alignment.BottomEnd).offset(4.dp, 4.dp).size(20.dp).background(MaterialTheme.colorScheme.surface, CircleShape).padding(2.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
         },
         supportingContent = {
@@ -108,7 +117,7 @@ private fun Row(t: Transfer, modifier: Modifier) {
                 Text(
                     when (t.state) {
                         Transfer.State.QUEUED -> "Waiting"
-                        Transfer.State.RUNNING -> "${Format.size(t.done)} / ${Format.size(t.size)}" + if (t.speed > 0) " · ${Format.speed(t.speed)}" else ""
+                        Transfer.State.RUNNING -> "${Format.size(t.done)} of ${Format.size(t.size)}" + if (t.speed > 0) " · ${Format.speed(t.speed)}" else ""
                         Transfer.State.DONE -> "Done · ${Format.size(t.size)}"
                         Transfer.State.FAILED -> t.error ?: "Failed"
                         Transfer.State.CANCELED -> "Cancelled"

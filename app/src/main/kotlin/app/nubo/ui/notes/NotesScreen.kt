@@ -258,7 +258,7 @@ private fun EmptyFor(filter: NoteFilter, searching: Boolean) {
         filter == NoteFilter.FAVOURITES -> "No favourite notes" to "Add notes to your favourites from their menu."
         filter == NoteFilter.ARCHIVE -> "The archive is empty" to null
         filter == NoteFilter.TRASH -> "The trash is empty" to null
-        else -> "No notes" to "Tap New note to write one. Filen encrypts it on this phone."
+        else -> "No notes" to "Tap New note to write one."
     }
     EmptyState(Icons.StickyNote, title, Modifier.fillMaxWidth().height(320.dp), message = text)
 }
@@ -374,15 +374,7 @@ private fun TypeDialog(current: NoteType?, onDismiss: () -> Unit, onPick: (NoteT
         onDismissRequest = onDismiss,
         title = { Text("Note type") },
         text = {
-            Column {
-                Text(
-                    "A checklist gets one row for each line. Other types keep the text.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-                TypeChips(current) { if (it != current) onPick(it); onDismiss() }
-            }
+            TypeChips(current) { if (it != current) onPick(it); onDismiss() }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

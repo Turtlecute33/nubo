@@ -10,18 +10,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -40,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -54,7 +48,9 @@ import app.nubo.app
 import app.nubo.data.CameraUpload
 import app.nubo.ui.Icons
 import app.nubo.ui.components.IconAction
+import app.nubo.ui.components.Notice
 import app.nubo.ui.components.SectionHeader
+import app.nubo.ui.components.SettingRow
 import app.nubo.ui.components.Toggle
 import app.nubo.ui.components.userText
 import app.nubo.ui.drive.FolderPicker
@@ -111,6 +107,11 @@ fun CameraSettingsScreen() {
         app.notifier.cameraSkippedDone()
         app.scope.launch(Dispatchers.IO) { app.cameraStatus.forget(uris) }
         app.messenger.show(if (uris.size == 1) "1 item is in the transfer queue" else "${uris.size} items are in the transfer queue")
+    }
+
+    fun checkNow() {
+        CameraJob.runNow(context, app.prefs.value.camera)
+        app.messenger.show("Camera upload is checking for new photos")
     }
     // The user can give or take the access in the system settings and come back.
     LifecycleResumeEffect(cam.videos) {
@@ -182,7 +183,11 @@ fun CameraSettingsScreen() {
                 Toggle(
                     Icons.PhotoCamera,
                     "Camera upload",
-                    if (cam.enabled) "On · new photos upload by themselves" else "Off",
+                    when {
+                        !cam.enabled -> null
+                        status.last > 0 -> "Last upload: ${Format.dateTime(status.last)}"
+                        else -> "Nothing uploaded yet"
+                    },
                     cam.enabled,
                     enabled = !busy,
                     busy = busy,
@@ -197,89 +202,24 @@ fun CameraSettingsScreen() {
                     }
                 }
             }
-            if (cam.enabled) item(key = "last") {
-                ListItem(
-                    leadingContent = { Icon(Icons.History, null) },
-                    supportingContent = { Text(if (status.last > 0) Format.dateTime(status.last) else "Nothing uploaded yet") },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                ) { Text("Last upload") }
-            }
             val problem = status.problem
             if (cam.enabled && allowed && problem != null) item(key = "problem") {
-                Card(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Camera upload stopped", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(4.dp))
-                        Text(problem, style = MaterialTheme.typography.bodyMedium)
-                        Spacer(Modifier.height(12.dp))
-                        // A folder that is gone needs another folder; a try again cannot help.
-                        if (problem == FOLDER_GONE_TEXT) {
-                            FilledTonalButton(onClick = { picking = true }) { Text("Choose a folder") }
-                        } else {
-                            FilledTonalButton(onClick = {
-                                CameraJob.runNow(context, app.prefs.value.camera)
-                                app.messenger.show("Camera upload is checking for new photos")
-                            }) { Text("Try again") }
-                        }
-                    }
-                }
-            }
-            if (skipped.isNotEmpty()) {
-                item(key = "h-skipped") { SectionHeader("Not uploaded") }
-                item(key = "skipped-about") {
-                    Text(
-                        "Camera upload could not upload these items, and went on with the newer ones.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-                items(skipped.take(MAX_SHOWN), key = { "s-" + it.first }) { (_, name) ->
-                    ListItem(
-                        leadingContent = { Icon(Icons.Image, null) },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    ) { Text(name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) }
-                }
-                if (skipped.size > MAX_SHOWN) item(key = "skipped-more") {
-                    Text("And ${skipped.size - MAX_SHOWN} more", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                }
-                item(key = "skipped-retry") {
-                    FilledTonalButton(onClick = ::retrySkipped, enabled = cam.folder != null, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text("Try again")
-                    }
+                // A folder that is gone needs another folder; a try again cannot help.
+                if (problem == FOLDER_GONE_TEXT) {
+                    Notice("Camera upload stopped", problem, "Choose a folder") { picking = true }
+                } else {
+                    Notice("Camera upload stopped", problem, "Try again", ::checkNow)
                 }
             }
             if (cam.enabled && !allowed) item(key = "access") {
-                Card(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Camera upload is paused", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(4.dp))
-                        Text("Nubo has no access to the photos on this phone.", style = MaterialTheme.typography.bodyMedium)
-                        Spacer(Modifier.height(12.dp))
-                        FilledTonalButton(onClick = { request(Waiting.NONE, cam.videos) }) { Text("Allow access") }
-                    }
-                }
+                Notice("Camera upload is paused", "Nubo has no access to the photos on this phone.", "Allow access") { request(Waiting.NONE, cam.videos) }
             }
-            item(key = "h-where") { SectionHeader("Where") }
+            item(key = "h-options") { SectionHeader("Options") }
             item(key = "folder") {
-                Row(
-                    Icons.FolderFill,
-                    "Folder",
-                    when {
-                        cam.folder == null -> "“$DEFAULT_FOLDER” in your drive (made when you turn upload on)"
-                        else -> folderName ?: "A folder in your drive"
-                    },
-                ) { picking = true }
+                SettingRow(Icons.FolderFill, "Folder", if (cam.folder == null) DEFAULT_FOLDER else folderName ?: "A folder in your drive", Icons.ChevronRight) { picking = true }
             }
-            item(key = "h-what") { SectionHeader("What and when") }
             item(key = "videos") {
-                Toggle(Icons.Videocam, "Include videos", "Videos can use much data and storage", cam.videos) { on ->
+                Toggle(Icons.Videocam, "Include videos", null, cam.videos) { on ->
                     when {
                         !on -> apply { it.copy(videos = false) }
                         !cam.enabled || CameraJob.allowed(context, cam.copy(videos = true)) -> apply { it.copy(videos = true) }
@@ -287,26 +227,29 @@ fun CameraSettingsScreen() {
                     }
                 }
             }
-            item(key = "wifi") {
-                Toggle(Icons.Wifi, "Only on Wi-Fi", "Wait for a network that is not metered", cam.unmeteredOnly) { on ->
-                    apply { it.copy(unmeteredOnly = on) }
+            item(key = "wifi") { Toggle(Icons.Wifi, "Only on Wi-Fi", null, cam.unmeteredOnly) { on -> apply { it.copy(unmeteredOnly = on) } } }
+            if (cam.enabled && allowed) item(key = "now") { SettingRow(Icons.CloudUpload, "Check now", onClick = ::checkNow) }
+            if (skipped.isNotEmpty()) {
+                item(key = "h-skipped") { SectionHeader("Not uploaded") }
+                items(skipped.take(MAX_SHOWN), key = { "s-" + it.first }) { (_, name) ->
+                    ListItem(
+                        leadingContent = { Icon(Icons.Image, null) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    ) { Text(name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) }
                 }
-            }
-            if (cam.enabled && allowed) item(key = "now") {
-                Row(Icons.CloudUpload, "Check now", "Look for new photos and upload them") {
-                    CameraJob.runNow(context, app.prefs.value.camera)
-                    app.messenger.show("Camera upload is checking for new photos")
+                if (skipped.size > MAX_SHOWN) item(key = "skipped-more") {
+                    Text(
+                        "And ${skipped.size - MAX_SHOWN} more",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
                 }
-            }
-            item(key = "about") {
-                Text(
-                    "Photos and videos from the camera (the DCIM folder) upload in the background, on the network that you " +
-                        "allow, encrypted on this phone. Android removes the GPS position from the uploaded files, because " +
-                        "Nubo does not ask for access to the location of your media.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
-                )
+                item(key = "skipped-retry") {
+                    FilledTonalButton(onClick = ::retrySkipped, enabled = cam.folder != null, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text("Try again")
+                    }
+                }
             }
         }
     }
@@ -318,8 +261,8 @@ fun CameraSettingsScreen() {
             title = { Text("Camera upload needs access to all photos") },
             text = {
                 Text(
-                    if (a == Access.SELECTED) "You gave access to some photos only. Camera upload must see all new photos: allow all photos (and videos) in the app settings."
-                    else "Allow access to photos (and videos) in the app settings.",
+                    if (a == Access.SELECTED) "You gave access to some photos only. Allow all photos in the app settings."
+                    else "Allow access to photos in the app settings.",
                 )
             },
             confirmButton = {
@@ -381,8 +324,8 @@ private fun SinceDialog(onDismiss: () -> Unit, onConfirm: (all: Boolean) -> Unit
         title = { Text("Which photos?") },
         text = {
             Column(Modifier.selectableGroup()) {
-                Choice("Only new photos", "Photos that you take from now on", !all) { all = false }
-                Choice("Also the photos already on the phone", "All photos and videos in the DCIM folder", all) { all = true }
+                Choice("New photos only", !all) { all = false }
+                Choice("All photos on this phone", all) { all = true }
             }
         },
         confirmButton = { TextButton(onClick = { onDismiss(); onConfirm(all) }) { Text("Turn on") } },
@@ -391,23 +334,11 @@ private fun SinceDialog(onDismiss: () -> Unit, onConfirm: (all: Boolean) -> Unit
 }
 
 @Composable
-private fun Choice(title: String, text: String, selected: Boolean, onClick: () -> Unit) {
+private fun Choice(title: String, selected: Boolean, onClick: () -> Unit) {
     ListItem(
-        supportingContent = { Text(text) },
         leadingContent = { RadioButton(selected = selected, onClick = null) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
-    ) { Text(title) }
-}
-
-@Composable
-private fun Row(icon: ImageVector, title: String, text: String, onClick: () -> Unit) {
-    ListItem(
-        onClick = onClick,
-        leadingContent = { Icon(icon, null) },
-        supportingContent = { Text(text, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        trailingContent = { Icon(Icons.ChevronRight, null) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     ) { Text(title) }
 }
 

@@ -132,7 +132,7 @@ fun ChatsScreen(isRoot: Boolean = false) {
         topBar = {
             LargeFlexibleTopAppBar(
                 title = { Text("Chats") },
-                subtitle = { Text("End-to-end encrypted") },
+                subtitle = list?.let { { Text(if (it.size == 1) "1 chat" else "${it.size} chats") } },
                 navigationIcon = { if (!isRoot) IconAction(Icons.ArrowBack, "Back", nav::back) },
                 scrollBehavior = scroll,
             )
@@ -164,7 +164,7 @@ fun ChatsScreen(isRoot: Boolean = false) {
                             Icons.Forum,
                             "No chats",
                             Modifier.fillMaxWidth().height(320.dp),
-                            message = "Chat with your Filen contacts. Messages are encrypted on this phone.",
+                            message = "Chat with your Filen contacts.",
                         )
                     }
                     else -> items(list, key = { it.uuid }) { c ->

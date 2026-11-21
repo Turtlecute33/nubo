@@ -31,7 +31,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetState
@@ -44,7 +43,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -59,9 +57,12 @@ import app.nubo.drive.LinkState
 import app.nubo.drive.Sharing
 import app.nubo.ui.Icons
 import app.nubo.ui.components.ConfirmDialog
+import app.nubo.ui.components.EmptyState
 import app.nubo.ui.components.ItemThumb
 import app.nubo.ui.components.LoadingBox
 import app.nubo.ui.components.PrivateTextInput
+import app.nubo.ui.components.SectionHeader
+import app.nubo.ui.components.Toggle
 import app.nubo.ui.components.userText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -134,10 +135,8 @@ fun LinkSheet(item: Item, onDismiss: () -> Unit) {
             HorizontalDivider()
             val s = state
             when {
-                !linkable -> Note(
-                    Icons.LinkOff,
-                    "Public links for this file are not available. Its key is longer than the key that a Filen link can hold.",
-                )
+                // The key of this file is longer than the key that a Filen link can hold (F-77).
+                !linkable -> EmptyState(Icons.LinkOff, "This file cannot have a public link", Modifier.fillMaxWidth())
                 s == null && error != null -> Column(Modifier.padding(24.dp)) {
                     Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
                     if (!final) {
@@ -153,7 +152,7 @@ fun LinkSheet(item: Item, onDismiss: () -> Unit) {
                             onCopy = {
                                 SecretClip.copy(context, "Filen link", s.url)
                                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                                app.messenger.show("Link copied. The app clears it when you come back, or after 1 minute in the app.")
+                                app.messenger.show("Link copied")
                             },
                             onSend = {
                                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, s.url)
@@ -193,7 +192,7 @@ fun LinkSheet(item: Item, onDismiss: () -> Unit) {
                     }
                     if (busy && item.folder && !s.enabled) {
                         Text(
-                            "A folder link copies the name and key of each item inside. A large folder takes a while. You can close this sheet.",
+                            "A large folder takes a while. You can close this sheet.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 24.dp),
@@ -201,11 +200,6 @@ fun LinkSheet(item: Item, onDismiss: () -> Unit) {
                     }
                 }
             }
-            Note(
-                Icons.PrivacyTip,
-                "Anyone with the link can open ${if (item.folder) "this folder and everything in it" else "this file"}. " +
-                    "The key is in the link, after the “#”. Filen never gets it, so keep the link private.",
-            )
         }
     }
     if (removing) {
@@ -252,16 +246,6 @@ internal fun SheetHeader(item: Item, title: String) {
     }
 }
 
-/** A short explanation with an icon. */
-@Composable
-internal fun Note(icon: ImageVector, text: String) {
-    Row(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-        Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(12.dp))
-        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
 @Composable
 private fun LinkBox(url: String, onCopy: () -> Unit, onSend: () -> Unit) {
     Column(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
@@ -299,35 +283,25 @@ private fun Settings(
     hadPassword: Boolean,
     enabled: Boolean,
 ) {
-    Text(
-        "Expires",
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 24.dp, top = 8.dp),
-    )
-    LazyRow(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    SectionHeader("Expires", inset = 24.dp)
+    LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(Sharing.EXPIRATIONS, key = { it }) { code ->
             FilterChip(selected = expiration == code, onClick = { onExpiration(code) }, enabled = enabled, label = { Text(expiryLabel(code)) })
         }
     }
-    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Key, null)
-        Spacer(Modifier.width(16.dp))
-        Text("Password", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = protect, onCheckedChange = onProtect, enabled = enabled)
-    }
+    Toggle(Icons.Key, "Password", null, protect, Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp), enabled = enabled, onChange = onProtect)
     AnimatedVisibility(protect) {
         PrivateTextInput {
             OutlinedTextField(
                 value = password,
                 onValueChange = { onPassword(it.take(256)) },
                 label = { Text("Link password") },
-                supportingText = { Text(if (hadPassword) "Enter the password again to keep it, or a new one" else "Visitors must type it to open the link") },
+                supportingText = if (hadPassword) ({ Text("Enter the password again to keep it, or a new one") }) else null,
                 singleLine = true,
                 enabled = enabled,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
             )
         }
     }

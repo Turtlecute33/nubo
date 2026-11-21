@@ -20,8 +20,6 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -378,18 +376,11 @@ private fun CheckItem(editor: NoteEditor, row: CheckRow, modifier: Modifier) {
     }
 }
 
-/** Rich text and unknown types: the text only, never the HTML (N-93). */
+/** Rich text and unknown types: the text only, never the HTML (N-93). The top bar tells that the note is read only. */
 @Composable
 private fun ReadOnly(raw: String, type: NoteType?) {
     val text = remember(raw, type) { if (type == NoteType.RICH) NoteText.plain(raw) else raw }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-            Text(
-                if (type == NoteType.RICH) "Nubo shows rich text notes as plain text. Edit them in a Filen app." else "Nubo cannot edit this type of note.",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(16.dp),
-            )
-        }
         SelectionContainer { Text(text, style = MaterialTheme.typography.bodyLarge) }
     }
 }

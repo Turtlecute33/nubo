@@ -264,7 +264,7 @@ private fun EmptyFor(listing: Listing, modifier: Modifier) {
         Listing.Links -> Triple(Icons.Link, "No public links", "Make a link from the menu of a file or folder.")
         Listing.SharedIn -> Triple(Icons.Group, "Nothing shared with you", null)
         Listing.SharedOut -> Triple(Icons.Group, "You share nothing", "Share from the menu of a file or folder.")
-        Listing.Offline -> Triple(Icons.OfflinePin, "No offline files", "Keep files on this phone from their menu. Offline files stay encrypted in Nubo; Download saves a normal copy in Download/Nubo.")
+        Listing.Offline -> Triple(Icons.OfflinePin, "No offline files", "Keep files on this phone from their menu.")
         else -> Triple(Icons.Folder, "This folder is empty", if (listing.writable) "Tap + to upload files or make a folder." else null)
     }
     EmptyState(icon, title, modifier, message = text)

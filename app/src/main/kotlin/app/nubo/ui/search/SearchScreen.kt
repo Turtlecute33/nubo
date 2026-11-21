@@ -141,7 +141,7 @@ fun SearchScreen() {
                     LoadingBox(Modifier.padding(top = 48.dp))
                     Text("Reading your drive…", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
                 }
-                query.isBlank() -> EmptyState(Icons.Search, "Search by name", Modifier.fillMaxSize(), message = "The search runs on this phone. Filen does not see what you look for.")
+                query.isBlank() -> EmptyState(Icons.Search, "Search by name", Modifier.fillMaxSize())
                 hits.isEmpty() -> EmptyState(Icons.Search, "No results", Modifier.fillMaxSize())
                 else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                     items(hits.size, key = { hits[it].item.uuid }) { i ->

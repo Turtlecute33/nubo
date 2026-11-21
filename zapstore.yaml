@@ -9,8 +9,8 @@ description: |
   Nubo has no native code, no WebView and no dynamic code loading, and it is made to run on
   GrapheneOS. No trackers, no Google Play Services.
 
-  - **Drive**: list or grid, a sort for each folder, search on the phone, upload, download, rename,
-    move, trash and restore, favourites and recent files.
+  - **Drive**: list or grid, a sort for each folder, search on the phone, upload of files and folders,
+    download, rename, move, trash and restore, favourites and recent files.
   - **Fast transfers** in the background, and share files from other apps to upload them.
   - **Photos**: a timeline, and camera upload that can wait for Wi-Fi.
   - **Viewers** for images, video, audio, text and PDF, and **offline files**.
