@@ -41,15 +41,7 @@ class FileProvider : ContentProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (mode != "r") throw SecurityException("Read only")
         val context = context ?: throw FileNotFoundException("No context")
-        // In the lock of [clear]: a descriptor that opens during a logout cannot outlive it.
-        val reader = synchronized(readers) {
-            val item = entry(uri) ?: throw FileNotFoundException("Unknown or expired file")
-            // Each descriptor holds a thread and up to 6 MiB of plain chunks: an app with a grant cannot open
-            // descriptors with no end and take the memory of the app.
-            if (readers.size >= MAX_OPEN) throw FileNotFoundException("Too many open files")
-            ChunkReader(context.app.content, item).also { readers += it }
-        }
-        return ProxyFd.open(context, reader) { synchronized(readers) { readers -= reader } }
+        return openPlain(context) { entry(uri) }
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? = throw UnsupportedOperationException()
@@ -68,7 +60,7 @@ class FileProvider : ContentProvider() {
         private const val MAX_OPEN = 8
         private val entries = ConcurrentHashMap<String, Entry>()
 
-        /** The readers of the open descriptors; the lock of [openFile] and [clear]. A closed descriptor removes its reader. */
+        /** The readers of the open descriptors; the lock of [openPlain] and [clear]. A closed descriptor removes its reader. */
         private val readers = HashSet<ChunkReader>()
 
         /** A new content URI for [item]: `content://<package>.files/<token>/<name>`. */
@@ -82,6 +74,22 @@ class FileProvider : ContentProvider() {
         }
 
         fun mime(item: Item): String = item.mime.takeIf { '/' in it } ?: FileType.mime(item.name)
+
+        /**
+         * A read-only descriptor of the plain content of the file that [resolve] gives (null: not found). Also
+         * for [DocsProvider]. [resolve] runs in the lock of [clear]: a descriptor that opens during a logout
+         * cannot outlive it.
+         */
+        internal fun openPlain(context: Context, resolve: () -> Item?): ParcelFileDescriptor {
+            val reader = synchronized(readers) {
+                val item = resolve() ?: throw FileNotFoundException("Unknown or expired file")
+                // Each descriptor holds a thread and up to 6 MiB of plain chunks: an app with a grant cannot open
+                // descriptors with no end and take the memory of the app.
+                if (readers.size >= MAX_OPEN) throw FileNotFoundException("Too many open files")
+                ChunkReader(context.app.content, item).also { readers += it }
+            }
+            return ProxyFd.open(context, reader) { synchronized(readers) { readers -= reader } }
+        }
 
         /**
          * Forgets every URI (at logout): apps that hold one can read no more. An app that has a descriptor open

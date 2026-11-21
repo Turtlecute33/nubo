@@ -42,6 +42,7 @@ import app.nubo.drive.Usage
 import app.nubo.ui.Icons
 import app.nubo.ui.components.ConfirmDialog
 import app.nubo.ui.components.SectionHeader
+import app.nubo.ui.components.openLink
 import app.nubo.ui.nav.LocalNav
 import app.nubo.ui.nav.Route
 import app.nubo.util.Format
@@ -50,7 +51,8 @@ import kotlinx.coroutines.launch
 /** The account: storage, places that are not folders, settings, and log out. */
 @Composable
 fun MeScreen() {
-    val app = LocalContext.current.app
+    val context = LocalContext.current
+    val app = context.app
     val nav = LocalNav.current
     val settings by app.prefs.state.collectAsStateWithLifecycle()
     val email = app.account.session?.email.orEmpty()
@@ -69,8 +71,9 @@ fun MeScreen() {
         }
         item(key = "usage") { UsageCard(usage.usage, usage.error) { usage.load(force = true) } }
         item(key = "h-places") { SectionHeader("Places") }
-        item(key = "notes") { Row(Icons.StickyNote, "Notes", null) { nav.go(Route.Notes) } }
-        item(key = "chats") { Row(Icons.Chat, "Chats", null) { nav.go(Route.Chats) } }
+        // A place with its own tab gets no row here.
+        if (!settings.notesTab) item(key = "notes") { Row(Icons.StickyNote, "Notes", null) { nav.go(Route.Notes) } }
+        if (!settings.chatsTab) item(key = "chats") { Row(Icons.Chat, "Chats", null) { nav.go(Route.Chats) } }
         item(key = "transfers") { Row(Icons.SwapVert, "Transfers", null) { nav.go(Route.Transfers) } }
         item(key = "offline") { Row(Icons.OfflinePin, "Offline files", null) { nav.go(Route.Folder(Listing.Offline, "Offline")) } }
         item(key = "shared-in") { Row(Icons.Group, "Shared with me", null) { nav.go(Route.Folder(Listing.SharedIn, "Shared with me")) } }
@@ -82,6 +85,8 @@ fun MeScreen() {
             Row(Icons.PhotoCamera, "Camera upload", if (settings.camera.enabled) "On" else "Off") { nav.go(Route.CameraSettings) }
         }
         item(key = "settings") { Row(Icons.Palette, "Settings", "Theme, app lock, screenshots, cache") { nav.go(Route.Settings) } }
+        // Nubo does not change the password, two-factor or the recovery key: the Filen web app does.
+        item(key = "security") { Row(Icons.Shield, "Password and two-factor", "Opens Filen in your browser") { openLink(context, SECURITY_URL) } }
         item(key = "logout") {
             ListItem(
                 onClick = { leaving = true },
@@ -144,3 +149,6 @@ private fun Row(icon: ImageVector, title: String, text: String?, onClick: () -> 
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     ) { Text(title) }
 }
+
+/** The security settings of the Filen web app (password, two-factor, recovery key). */
+private const val SECURITY_URL = "https://app.filen.io/#/settings/security"

@@ -114,7 +114,7 @@ class RulesTest {
 
     @Test
     fun settingsSurviveTheFile() {
-        val s = Settings(theme = ThemeMode.DARK, pureBlack = true, appLock = true, folderViews = mapOf("x" to FolderView(grid = true, sort = SortBy.SIZE)))
+        val s = Settings(theme = ThemeMode.DARK, pureBlack = true, appLock = true, folderViews = mapOf("x" to FolderView(grid = true, sort = SortBy.SIZE)), notesTab = true, chatsTab = true)
         assertEquals(s, Prefs.parse(JSONObject(Prefs.toJson(s).toString())))
         assertEquals(Settings(), Prefs.parse(JSONObject("{}")))
     }

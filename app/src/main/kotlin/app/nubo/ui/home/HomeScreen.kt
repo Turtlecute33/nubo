@@ -96,10 +96,12 @@ fun HomeScreen() {
     val list = recents.items
     val files = remember(list) { list?.filter { !it.folder }?.sortedByDescending { it.uploaded }?.take(MAX_RECENTS) }
 
+    val settings by app.prefs.state.collectAsStateWithLifecycle()
     val x = AppTheme.extra
-    val quick = listOf(
-        Quick("Notes", Icons.StickyNote, MaterialShapes.Arch.toShape(), x.spreadsheet) { nav.go(Route.Notes) },
-        Quick("Chats", Icons.Chat, MaterialShapes.Cookie6Sided.toShape(), x.presentation) { nav.go(Route.Chats) },
+    // A place with its own tab gets no tile here.
+    val quick = listOfNotNull(
+        Quick("Notes", Icons.StickyNote, MaterialShapes.Arch.toShape(), x.spreadsheet) { nav.go(Route.Notes) }.takeIf { !settings.notesTab },
+        Quick("Chats", Icons.Chat, MaterialShapes.Cookie6Sided.toShape(), x.presentation) { nav.go(Route.Chats) }.takeIf { !settings.chatsTab },
         Quick("Favourites", Icons.StarFill, MaterialShapes.Cookie9Sided.toShape(), x.warning) { nav.go(Route.Folder(Listing.Favorites, "Favourites")) },
         Quick("Shared", Icons.Group, MaterialShapes.Circle.toShape(), x.document) { nav.go(Route.Folder(Listing.SharedIn, "Shared with me")) },
         Quick("My shares", Icons.FolderSharedFill, MaterialShapes.Square.toShape(), x.audio) { nav.go(Route.Folder(Listing.SharedOut, "Shared by me")) },

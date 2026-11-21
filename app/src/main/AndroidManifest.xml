@@ -93,6 +93,20 @@
             android:exported="false"
             android:grantUriPermissions="true" />
 
+        <!-- The read-only Nubo entry of the system file picker. Exported, but only the system picker
+             (MANAGE_DOCUMENTS) can browse it; another app reads only the files that the user picked, through a
+             proxy file descriptor. No entry while logged out or while the app lock is locked. -->
+        <provider
+            android:name=".media.DocsProvider"
+            android:authorities="${applicationId}.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <!-- EmojiCompat would look for a downloadable emoji font (a Play Services font provider).
              Use the platform emoji font. -->
         <provider

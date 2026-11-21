@@ -86,6 +86,10 @@ fun SettingsScreen() {
             item(key = "dynamic") { Toggle(Icons.Palette, "Wallpaper colours", "Colours from your wallpaper", s.dynamicColor) { v -> app.prefs.edit { it.copy(dynamicColor = v) } } }
             item(key = "black") { Toggle(Icons.DarkMode, "Pure black", "Black background in the dark theme", s.pureBlack) { v -> app.prefs.edit { it.copy(pureBlack = v) } } }
 
+            item(key = "h-bar") { SectionHeader("Bottom bar") }
+            item(key = "notes-tab") { Toggle(Icons.StickyNote, "Notes", "Show Notes as a tab", s.notesTab) { v -> app.prefs.edit { it.copy(notesTab = v) } } }
+            item(key = "chats-tab") { Toggle(Icons.Chat, "Chats", "Show Chats as a tab", s.chatsTab) { v -> app.prefs.edit { it.copy(chatsTab = v) } } }
+
             item(key = "h-security") { SectionHeader("Security") }
             item(key = "lock") {
                 Toggle(
@@ -115,7 +119,7 @@ fun SettingsScreen() {
                     }
                 }
             }
-            item(key = "offline") { Row(Icons.OfflinePin, "Offline files", if (offlineSize < 0) "…" else Format.size(offlineSize), null) }
+            item(key = "offline") { Row(Icons.OfflinePin, "Offline files", if (offlineSize < 0) "…" else Format.size(offlineSize) + ", encrypted", null) }
 
             item(key = "h-support") { SectionHeader("Support") }
             item(key = "donate") { Row(Icons.CurrencyBitcoin, "Donate bitcoin", "btcpay.priorato.org") { openLink(context, DONATE_URL) } }

@@ -47,6 +47,9 @@ data class Settings(
     /** Per-folder view, by folder UUID. Set when the user changes the view of one folder. */
     val folderViews: Map<String, FolderView> = emptyMap(),
     val camera: CameraUpload = CameraUpload(),
+    /** Notes and Chats as tabs in the bottom bar, when the user turns them on. */
+    val notesTab: Boolean = false,
+    val chatsTab: Boolean = false,
 ) {
     fun viewOf(folder: String): FolderView = folderViews[folder] ?: defaultView
 }
@@ -107,6 +110,8 @@ class Prefs(dir: () -> File, private val scope: CoroutineScope) {
             .put("pureBlack", s.pureBlack)
             .put("appLock", s.appLock)
             .put("blockScreenshots", s.blockScreenshots)
+            .put("notesTab", s.notesTab)
+            .put("chatsTab", s.chatsTab)
             .put("defaultView", view(s.defaultView))
             .put("folderViews", JSONObject().apply { s.folderViews.forEach { (k, v) -> put(k, view(v)) } })
             .put(
@@ -129,6 +134,8 @@ class Prefs(dir: () -> File, private val scope: CoroutineScope) {
                 pureBlack = o.optBoolean("pureBlack", d.pureBlack),
                 appLock = o.optBoolean("appLock", d.appLock),
                 blockScreenshots = o.optBoolean("blockScreenshots", d.blockScreenshots),
+                notesTab = o.optBoolean("notesTab", d.notesTab),
+                chatsTab = o.optBoolean("chatsTab", d.chatsTab),
                 defaultView = o.optJSONObject("defaultView")?.let(::view) ?: d.defaultView,
                 folderViews = views?.keys()?.asSequence()?.mapNotNull { k -> views.optJSONObject(k)?.let { k to view(it) } }?.toMap().orEmpty(),
                 camera = CameraUpload(

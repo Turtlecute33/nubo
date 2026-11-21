@@ -104,9 +104,12 @@ class ChatsModel(private val app: NuboApp, private val scope: CoroutineScope) {
     }
 }
 
-/** The chats of the account, newest first. The list checks for news only while it shows (C-41). DESIGN §13. */
+/**
+ * The chats of the account, newest first. The list checks for news only while it shows (C-41). DESIGN §13.
+ * [isRoot]: the root of the Chats tab, with no Back button.
+ */
 @Composable
-fun ChatsScreen() {
+fun ChatsScreen(isRoot: Boolean = false) {
     val app = LocalContext.current.app
     val nav = LocalNav.current
     val haptics = LocalHapticFeedback.current
@@ -130,7 +133,7 @@ fun ChatsScreen() {
             LargeFlexibleTopAppBar(
                 title = { Text("Chats") },
                 subtitle = { Text("End-to-end encrypted") },
-                navigationIcon = { IconAction(Icons.ArrowBack, "Back", nav::back) },
+                navigationIcon = { if (!isRoot) IconAction(Icons.ArrowBack, "Back", nav::back) },
                 scrollBehavior = scroll,
             )
         },

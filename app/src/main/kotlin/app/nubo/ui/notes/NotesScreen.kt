@@ -131,9 +131,12 @@ private fun rememberNotes(): NotesModel {
     return model
 }
 
-/** The notes of the account: four views, a search over titles and previews, and a new-note button. DESIGN §12. */
+/**
+ * The notes of the account: four views, a search over titles and previews, and a new-note button. DESIGN §12.
+ * [isRoot]: the root of the Notes tab, with no Back button.
+ */
 @Composable
-fun NotesScreen() {
+fun NotesScreen(isRoot: Boolean = false) {
     val app = LocalContext.current.app
     val nav = LocalNav.current
     val haptics = LocalHapticFeedback.current
@@ -156,7 +159,7 @@ fun NotesScreen() {
             LargeFlexibleTopAppBar(
                 title = { Text("Notes") },
                 subtitle = shown?.let { { Text(if (it.size == 1) "1 note" else "${it.size} notes") } },
-                navigationIcon = { IconAction(Icons.ArrowBack, "Back", nav::back) },
+                navigationIcon = { if (!isRoot) IconAction(Icons.ArrowBack, "Back", nav::back) },
                 actions = { IconAction(if (searching) Icons.Close else Icons.Search, if (searching) "Close search" else "Search", { searching = !searching; query = "" }) },
                 scrollBehavior = scroll,
             )

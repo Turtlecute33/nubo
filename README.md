@@ -29,18 +29,24 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
 
 ## Features
 
-- **Drive**: browse in a list or a grid, with a sort for each folder. Search, upload, download, new
-  folder, rename, move, trash and restore, favourites and recent files.
+- **Drive**: browse in a list or a grid, with a sort for each folder. Search, upload (files, or a
+  folder with its subfolders), download, new folder, rename, move, trash and restore, favourites and
+  recent files.
 - **Fast transfers**: parallel chunk uploads and downloads, a queue that goes on in the
   background, and one place that shows the progress. Share files from other apps to upload them.
 - **Photos**: a timeline of a cloud folder, and camera upload of new photos and videos. Camera
-  upload can wait for Wi-Fi, and it starts again by itself after a reboot.
+  upload can wait for Wi-Fi, and it starts again by itself after a reboot. Its screen shows the last
+  upload, a problem that stopped it, and the items that did not upload, with "Try again".
 - **Viewers in the app**: images (with zoom), video, audio, text and PDF.
-- **Offline files**: keep files on the phone and open them with no network.
+- **Offline files**: keep files on the phone and open them with no network. They stay encrypted in
+  Nubo; Download saves a normal copy in Download/Nubo.
+- **Android file picker**: other apps can open files of your drive from the system file picker. Read
+  only.
 - **Notes**: text, checklist, Markdown and code notes that save while you type. Pin, favourite,
   archive, trash and search. Rich-text notes from the other Filen apps show as plain text.
 - **Chat**: end-to-end encrypted chats with your Filen contacts. Reply, edit and delete messages,
   start a chat with one or more contacts, and send or accept contact requests.
+- **Bottom bar**: Notes and Chats can be tabs (Settings › Bottom bar).
 - **Sharing**: public links with an expiry date and a password (a paid Filen plan is necessary for
   links), read-only shares with other Filen users, and public Filen links that open in the app with
   no account.
@@ -58,6 +64,9 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
   copy" give the other app a file handle that decrypts while it reads; no decrypted file is
   written. Offline files stay encrypted as Filen stores them. Thumbnails are encrypted with a key
   of the session.
+- **The file picker entry is read only.** An app gets only the files that you pick for it, and it reads
+  them from a file handle that decrypts while it reads: no decrypted file is written. The entry is not
+  there while you are logged out, or while the app lock is on and the app is locked.
 - **Downloads are checked.** Each 1 MiB chunk has its own authentication tag. A full download also
   checks the size and the BLAKE3 hash of the file, when the uploader wrote one.
 - **Copied links do not stay.** A copied link is a sensitive clip, and the app clears it when you
@@ -91,8 +100,9 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
   position from the uploaded photos.
 - Notifications show counts and percentages only, never file names. They do not show on a locked
   phone that has a screen lock, and do not go to a watch or a car.
-- Settings › Support has links to donate and to the developer on X and Nostr. They open in your
-  browser. The app itself does not connect to these hosts.
+- Settings › Support has links to donate and to the developer on X and Nostr. Me › Password and
+  two-factor opens the Filen web app. They open in your browser. The app itself does not connect to
+  these hosts.
 - Referral: on the login screen, a switch (on by default) adds the Filen referral of the Nubo
   developer to the "Create one at filen.io" link. Filen can then give 10 GB more free storage to
   your new account and to the developer, and it knows that the developer invited you. Turn the
@@ -204,11 +214,12 @@ Run the JVM tests, lint and the two builds:
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
 
-The tests (78) cover the crypto against the known-answer values of the Filen SDK, the v2 login with
+The tests (83) cover the crypto against the known-answer values of the Filen SDK, the v2 login with
 two-factor codes against a scripted server, the download order, size and hash checks, the chunk
 count, name rules, item decoding, sort order, the settings file, link URLs and link passwords, the
 retry rule, the error texts, camera upload errors, search, the viewer cache, the note and chat
-encryption, the checklist format, note previews and the unread rule of chats.
+encryption, the checklist format, note previews, the unread rule of chats, the camera upload status
+file and the document IDs of the file picker.
 
 On a Pixel 9 Pro XL with GrapheneOS and a test account with synthetic files, these steps were
 tested: login, upload (empty, exactly 1 MiB and larger files), a download with the same SHA-256

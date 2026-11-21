@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.AlertDialog
@@ -31,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,9 +59,12 @@ import app.nubo.ui.components.Toggle
 import app.nubo.ui.components.userText
 import app.nubo.ui.drive.FolderPicker
 import app.nubo.ui.nav.LocalNav
+import app.nubo.util.Format
 import app.nubo.work.CameraJob
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** What waits for the media permission: turning camera upload on, or turning videos on. */
 private enum class Waiting { NONE, ENABLE, VIDEOS }
@@ -83,6 +89,25 @@ fun CameraSettingsScreen() {
     var picking by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var allowed by remember { mutableStateOf(CameraJob.allowed(context, cam)) }
+    val status by app.cameraStatus.state.collectAsStateWithLifecycle()
+    // The names of the items that did not upload come from MediaStore; the app does not store them. An item that is
+    // not on the phone any more leaves the list.
+    var skipped by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    LaunchedEffect(status.skipped) {
+        val (found, gone) = withContext(Dispatchers.IO) { mediaNames(context, status.skipped) }
+        skipped = found
+        if (gone.isNotEmpty()) withContext(Dispatchers.IO) { app.cameraStatus.forget(gone) }
+    }
+
+    /** Sends the items that did not upload to the transfer queue, where the user sees each result. */
+    fun retrySkipped() {
+        val folder = app.prefs.value.camera.folder ?: return
+        val uris = skipped.map { it.first }
+        app.transfers.upload(folder, uris.map { it.toUri() })
+        app.notifier.cameraSkippedDone()
+        app.scope.launch(Dispatchers.IO) { app.cameraStatus.forget(uris) }
+        app.messenger.show(if (uris.size == 1) "1 item is in the transfer queue" else "${uris.size} items are in the transfer queue")
+    }
     // The user can give or take the access in the system settings and come back.
     LifecycleResumeEffect(cam.videos) {
         allowed = CameraJob.allowed(context, cam)
@@ -165,6 +190,56 @@ fun CameraSettingsScreen() {
                         }
                         CameraJob.allowed(context, cam) && notifications(context) -> askSince = true
                         else -> request(Waiting.ENABLE, cam.videos)
+                    }
+                }
+            }
+            if (cam.enabled) item(key = "last") {
+                ListItem(
+                    leadingContent = { Icon(Icons.History, null) },
+                    supportingContent = { Text(if (status.last > 0) Format.dateTime(status.last) else "Nothing uploaded yet") },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                ) { Text("Last upload") }
+            }
+            val problem = status.problem
+            if (cam.enabled && allowed && problem != null) item(key = "problem") {
+                Card(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Camera upload stopped", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(problem, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(12.dp))
+                        FilledTonalButton(onClick = {
+                            CameraJob.runNow(context, app.prefs.value.camera)
+                            app.messenger.show("Camera upload is checking for new photos")
+                        }) { Text("Try again") }
+                    }
+                }
+            }
+            if (skipped.isNotEmpty()) {
+                item(key = "h-skipped") { SectionHeader("Not uploaded") }
+                item(key = "skipped-about") {
+                    Text(
+                        "Camera upload could not upload these items, and went on with the newer ones.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                items(skipped.take(MAX_SHOWN), key = { "s-" + it.first }) { (_, name) ->
+                    ListItem(
+                        leadingContent = { Icon(Icons.Image, null) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    ) { Text(name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) }
+                }
+                if (skipped.size > MAX_SHOWN) item(key = "skipped-more") {
+                    Text("And ${skipped.size - MAX_SHOWN} more", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
+                item(key = "skipped-retry") {
+                    FilledTonalButton(onClick = ::retrySkipped, enabled = cam.folder != null, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text("Try again")
                     }
                 }
             }
@@ -325,3 +400,28 @@ private fun Row(icon: ImageVector, title: String, text: String, onClick: () -> U
 }
 
 private const val DEFAULT_FOLDER = "Camera uploads"
+
+/** The items of the "Not uploaded" list that show; the rest is a count. */
+private const val MAX_SHOWN = 20
+
+/**
+ * The names of MediaStore [uris]: the found items (URI, name) and the URIs that are not there any more. With no
+ * media access an item stays in the list, with no name.
+ */
+private fun mediaNames(context: Context, uris: List<String>): Pair<List<Pair<String, String>>, List<String>> {
+    val found = ArrayList<Pair<String, String>>()
+    val gone = ArrayList<String>()
+    for (u in uris) {
+        // No cursor is a provider problem, not proof that the item is gone: the item stays.
+        val name = try {
+            when (val cursor = context.contentResolver.query(u.toUri(), arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)) {
+                null -> ""
+                else -> cursor.use { c -> if (c.moveToFirst()) c.getString(0) ?: "" else null }
+            }
+        } catch (_: SecurityException) {
+            ""
+        }
+        if (name == null) gone += u else found += u to name.ifEmpty { "A photo or video" }
+    }
+    return found to gone
+}

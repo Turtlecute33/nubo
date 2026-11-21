@@ -20,9 +20,9 @@ import app.nubo.ui.viewer.ViewerScreen
 import androidx.compose.ui.platform.LocalContext
 import app.nubo.app
 
-/** The screen of each route. */
+/** The screen of each route. [isRoot]: the route is the root of its tab, so it has no Back button. */
 @Composable
-fun RouteContent(route: Route) {
+fun RouteContent(route: Route, isRoot: Boolean = false) {
     val nav = LocalNav.current
     when (route) {
         Route.Home -> HomeScreen()
@@ -34,9 +34,9 @@ fun RouteContent(route: Route) {
         Route.Me -> MeScreen()
         is Route.Folder -> FolderScreen(route.listing, route.title)
         Route.Search -> SearchScreen()
-        Route.Notes -> NotesScreen()
+        Route.Notes -> NotesScreen(isRoot)
         is Route.Note -> NoteScreen(route.uuid)
-        Route.Chats -> ChatsScreen()
+        Route.Chats -> ChatsScreen(isRoot)
         is Route.Chat -> ChatScreen(route.uuid)
         Route.NewChat -> NewChatScreen()
         Route.Transfers -> TransfersScreen()

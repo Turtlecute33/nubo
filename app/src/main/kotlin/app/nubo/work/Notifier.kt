@@ -61,6 +61,17 @@ class Notifier(private val context: Context) {
     /** Camera upload works again: removes the notification of [cameraStopped]. */
     fun cameraWorks() = nm.cancel(PROBLEM_ID)
 
+    /** [count] photos or videos did not upload and wait for the user (Camera upload screen). Only the count. */
+    fun cameraSkipped(count: Int) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        setUp()
+        val title = if (count == 1) "1 photo or video did not upload" else "$count photos or videos did not upload"
+        nm.notify(SKIPPED_ID, builder(PROBLEMS).setContentTitle(title).setContentText("Open Camera upload in Nubo to try again").setAutoCancel(true).build())
+    }
+
+    /** No item waits for the user any more. */
+    fun cameraSkippedDone() = nm.cancel(SKIPPED_ID)
+
     private fun builder(channel: String) = Notification.Builder(context, channel)
         .setSmallIcon(R.drawable.ic_notification)
         .setVisibility(Notification.VISIBILITY_SECRET)
@@ -84,5 +95,6 @@ class Notifier(private val context: Context) {
         const val TRANSFERS_ID = 1
         const val CAMERA_ID = 2
         const val PROBLEM_ID = 3
+        const val SKIPPED_ID = 4
     }
 }

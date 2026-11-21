@@ -104,6 +104,9 @@ fun FolderScreen(listing: Listing, title: String, isRoot: Boolean = false) {
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
         listing.folder?.let { if (uris.isNotEmpty()) app.transfers.upload(it, uris) }
     }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        listing.folder?.let { if (uri != null) app.transfers.uploadTree(it, uri) }
+    }
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris: List<Uri> ->
         listing.folder?.let { if (uris.isNotEmpty()) app.transfers.upload(it, uris) }
     }
@@ -180,6 +183,7 @@ fun FolderScreen(listing: Listing, title: String, isRoot: Boolean = false) {
                         icon = { Icon(Icons.PhotoLibrary, null) },
                         text = { Text("Upload photos and videos") },
                     )
+                    FloatingActionButtonMenuItem(onClick = { fabOpen = false; pickFolder.launch(null) }, icon = { Icon(Icons.DriveFolderUpload, null) }, text = { Text("Upload a folder") })
                     FloatingActionButtonMenuItem(onClick = { fabOpen = false; creating = true }, icon = { Icon(Icons.CreateNewFolder, null) }, text = { Text("New folder") })
                 }
             }
@@ -260,7 +264,7 @@ private fun EmptyFor(listing: Listing, modifier: Modifier) {
         Listing.Links -> Triple(Icons.Link, "No public links", "Make a link from the menu of a file or folder.")
         Listing.SharedIn -> Triple(Icons.Group, "Nothing shared with you", null)
         Listing.SharedOut -> Triple(Icons.Group, "You share nothing", "Share from the menu of a file or folder.")
-        Listing.Offline -> Triple(Icons.OfflinePin, "No offline files", "Keep files on this phone from their menu.")
+        Listing.Offline -> Triple(Icons.OfflinePin, "No offline files", "Keep files on this phone from their menu. Offline files stay encrypted in Nubo; Download saves a normal copy in Download/Nubo.")
         else -> Triple(Icons.Folder, "This folder is empty", if (listing.writable) "Tap + to upload files or make a folder." else null)
     }
     EmptyState(icon, title, modifier, message = text)

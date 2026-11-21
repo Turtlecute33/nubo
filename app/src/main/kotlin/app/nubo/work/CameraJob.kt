@@ -70,7 +70,12 @@ class CameraJob : JobService() {
                 // An account or folder problem: tell the user, and try again at the next new photo with no back-off
                 // (review 38). A network or server problem: the system runs the job again with back-off.
                 val problem = accountProblem(e)
-                if (problem != null) a.notifier.cameraStopped(problem) else again = true
+                if (problem != null) {
+                    a.notifier.cameraStopped(problem)
+                    withContext(Dispatchers.IO) { a.cameraStatus.stopped(problem) }
+                } else {
+                    again = true
+                }
             } finally {
                 // After onStopJob the system runs the job again itself: no second schedule here.
                 if (!stopped) {
@@ -109,8 +114,10 @@ class CameraJob : JobService() {
             // the back-off (review 83).
             if (SystemClock.elapsedRealtime() - began > RUN_MS) return true
             // An item that failed or ran out of job time MAX_TRIES times (a very large video) gives way, so
-            // that it does not block every later photo (review 8).
+            // that it does not block every later photo (review 8). It is not backed up: the user sees it and
+            // can try again.
             if (mark.spent(entry.id)) {
+                skip(a, entry)
                 withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
                 continue
             }
@@ -152,11 +159,20 @@ class CameraJob : JobService() {
                 }
                 // The first good upload of a run removes an old "Camera upload stopped" notification.
                 if (uploaded && !good) a.notifier.cameraWorks()
+                if (uploaded) withContext(Dispatchers.IO) { a.cameraStatus.uploaded() }
                 good = good || uploaded
+            } else {
+                skip(a, entry) // a name that Filen refuses
             }
             withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
         }
         return entries.size >= MAX_PER_RUN
+    }
+
+    /** Keeps [entry] in the list of items that did not upload, and tells the user the count. */
+    private suspend fun skip(a: NuboApp, entry: Entry) {
+        val count = withContext(Dispatchers.IO) { a.cameraStatus.skipped(entry.uri.toString()) }
+        a.notifier.cameraSkipped(count)
     }
 
     /** A media file that went away between the query and the upload. */

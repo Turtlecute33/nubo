@@ -8,8 +8,13 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.ViewModel
 
-/** The four tabs. Each tab has its own back stack, so a switch keeps the place in each tab. */
-enum class Tab(val root: Route) { HOME(Route.Home), DRIVE(Route.Drive), PHOTOS(Route.Photos), ME(Route.Me) }
+/**
+ * The tabs. Each tab has its own back stack, so a switch keeps the place in each tab. Notes and Chats show only
+ * when the user turns them on in the settings.
+ */
+enum class Tab(val root: Route) {
+    HOME(Route.Home), DRIVE(Route.Drive), PHOTOS(Route.Photos), NOTES(Route.Notes), CHATS(Route.Chats), ME(Route.Me),
+}
 
 /**
  * The back stacks. A ViewModel, so it survives configuration changes; after process death the app opens on

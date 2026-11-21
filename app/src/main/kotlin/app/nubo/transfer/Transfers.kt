@@ -2,6 +2,7 @@ package app.nubo.transfer
 
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -131,6 +133,77 @@ class Transfers(private val app: NuboApp) {
                 if (job != null) job.invokeOnCompletion { close() } else close()
             }
         }
+    }
+
+    /**
+     * Uploads a folder that the user picked ([tree], from the system folder picker) into [parent], with its
+     * subfolders: the same folders are made in the drive (a folder with the same name is used again), and each
+     * file goes into the queue. A queued upload can start after the activity is gone, so the app holds the
+     * grant of the tree until the last of these uploads ends. DESIGN §6.
+     */
+    fun uploadTree(parent: String, tree: Uri) {
+        val resolver = app.contentResolver
+        val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        val held = runCatching { resolver.takePersistableUriPermission(tree, read) }.isSuccess
+        intake.removeAll { it.isCompleted }
+        intake += app.scope.launch {
+            val ids = ArrayList<Long>()
+            try {
+                val rootId = DocumentsContract.getTreeDocumentId(tree)
+                val rootName = withContext(Dispatchers.IO) { children(DocumentsContract.buildDocumentUriUsingTree(tree, rootId)).firstOrNull()?.name } ?: "Folder"
+                // Each folder: its document ID, the cloud folder that gets its content, the depth.
+                val todo = ArrayDeque(listOf(Triple(rootId, app.drive.ops.createFolder(parent, rootName).uuid, 0)))
+                while (todo.isNotEmpty()) {
+                    val (docId, cloud, depth) = todo.removeFirst()
+                    val list = withContext(Dispatchers.IO) { children(DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)) }
+                    for (c in list) {
+                        if (c.dir) {
+                            if (depth < MAX_DEPTH) todo += Triple(c.id, app.drive.ops.createFolder(cloud, c.name).uuid, depth + 1)
+                            continue
+                        }
+                        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, c.id)
+                        val src = UploadSource(c.name, c.mime.ifEmpty { FileType.mime(c.name) }, c.modified, 0) {
+                            resolver.openInputStream(uri) ?: throw IOException("The file cannot be read")
+                        }
+                        ids += upload(cloud, src, c.size)
+                    }
+                }
+                app.messenger.show(if (ids.isEmpty()) "“$rootName” has no files: only its folders were made" else "Uploading ${ids.size} ${if (ids.size == 1) "file" else "files"} from “$rootName”")
+                ids.mapNotNull { jobs[it] }.joinAll()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                app.messenger.show(userText(e))
+                ids.mapNotNull { jobs[it] }.joinAll()
+            } finally {
+                if (held) runCatching { resolver.releasePersistableUriPermission(tree, read) }
+            }
+        }
+    }
+
+    /** One entry of a picked folder. */
+    private class Child(val id: String, val name: String, val mime: String, val dir: Boolean, val size: Long, val modified: Long)
+
+    /** The rows of a document query: one document, or the children of a folder. */
+    private fun children(uri: Uri): List<Child> {
+        val cols = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        val out = ArrayList<Child>()
+        app.contentResolver.query(uri, cols, null, null, null)?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getString(0) ?: continue
+                val name = c.getString(1)?.substringAfterLast('/')?.take(255)?.takeIf { it.isNotBlank() } ?: continue
+                val mime = c.getString(2).orEmpty()
+                out += Child(
+                    id, name, mime, mime == DocumentsContract.Document.MIME_TYPE_DIR,
+                    if (c.isNull(3)) -1 else c.getLong(3), if (c.isNull(4)) 0 else c.getLong(4),
+                )
+            }
+        }
+        return out
     }
 
     /** Queues one upload. Returns its task ID. */
@@ -303,6 +376,9 @@ class Transfers(private val app: NuboApp) {
 
     companion object {
         const val PARALLEL = 2
+
+        /** Folders deeper than this in a picked folder are not uploaded. */
+        private const val MAX_DEPTH = 64
         private const val TICK_MS = 250L
         private const val CHUNK = 1024L * 1024
     }

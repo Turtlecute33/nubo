@@ -72,15 +72,17 @@ import kotlinx.coroutines.flow.first
 
 private class TabInfo(val tab: Tab, val label: String, val icon: ImageVector, val selected: ImageVector)
 
-private val tabs = listOf(
+private val allTabs = listOf(
     TabInfo(Tab.HOME, "Home", Icons.Home, Icons.HomeFill),
     TabInfo(Tab.DRIVE, "Drive", Icons.Cloud, Icons.CloudFill),
     TabInfo(Tab.PHOTOS, "Photos", Icons.PhotoLibrary, Icons.PhotoLibrary),
+    TabInfo(Tab.NOTES, "Notes", Icons.StickyNote, Icons.StickyNote),
+    TabInfo(Tab.CHATS, "Chats", Icons.Chat, Icons.Chat),
     TabInfo(Tab.ME, "Me", Icons.AccountCircle, Icons.AccountCircleFill),
 )
 
 /**
- * The four tabs, each with its own back stack. The state of a tab (scroll places, open dialogs) stays while
+ * The tabs, each with its own back stack. The state of a tab (scroll places, open dialogs) stays while
  * another tab shows. Full-screen routes hide the tab bar.
  */
 @Composable
@@ -96,6 +98,12 @@ fun MainScaffold(nav: Navigator) {
     val density = LocalDensity.current
     val keyboard by remember(ime, density) { derivedStateOf { ime.getBottom(density) > 0 } }
     val bar = !full && !keyboard
+    val settings by app.prefs.state.collectAsStateWithLifecycle()
+    val tabs = remember(settings.notesTab, settings.chatsTab) {
+        allTabs.filter { (it.tab != Tab.NOTES || settings.notesTab) && (it.tab != Tab.CHATS || settings.chatsTab) }
+    }
+    // The user turned off the tab that shows: go to Home.
+    LaunchedEffect(tabs) { if (tabs.none { it.tab == nav.tab }) nav.select(Tab.HOME) }
 
     LaunchedEffect(Unit) {
         app.messenger.messages.collect { m ->
@@ -142,6 +150,8 @@ fun MainScaffold(nav: Navigator) {
                             },
                             icon = { Icon(if (selected) t.selected else t.icon, null) },
                             label = { Text(t.label) },
+                            // Six tabs: only the label of the selected tab, so that the labels do not cut on a narrow phone.
+                            alwaysShowLabel = tabs.size <= 5,
                         )
                     }
                 }
@@ -161,7 +171,7 @@ private fun TabStack(nav: Navigator, tab: Tab) {
         transitionSpec = forward,
         popTransitionSpec = backward,
         predictivePopTransitionSpec = { backward() },
-        entryProvider = { route -> NavEntry(route, contentKey = route.toString()) { RouteContent(it) } },
+        entryProvider = { route -> NavEntry(route, contentKey = route.toString()) { RouteContent(it, isRoot = it == tab.root) } },
     )
 }
 

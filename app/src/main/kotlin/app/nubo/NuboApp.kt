@@ -14,6 +14,7 @@ import app.nubo.drive.Content
 import app.nubo.drive.Drive
 import app.nubo.drive.PublicLinks
 import app.nubo.drive.Uploader
+import app.nubo.media.DocsProvider
 import app.nubo.media.FileProvider
 import app.nubo.notes.Notes
 import app.nubo.media.Thumbs
@@ -24,6 +25,7 @@ import app.nubo.ui.Messenger
 import app.nubo.ui.links.LinkSessions
 import app.nubo.ui.viewer.Viewers
 import app.nubo.work.CameraJob
+import app.nubo.work.CameraStatus
 import app.nubo.work.Notifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +62,7 @@ class NuboApp : Application() {
     val notifier by lazy { Notifier(this) }
     val notes by lazy { Notes(drive, account) }
     val chats by lazy { Chats(drive, account) }
+    val cameraStatus by lazy { CameraStatus(noBackupFilesDir) }
 
     private val _ready = MutableStateFlow(false)
 
@@ -73,10 +76,16 @@ class NuboApp : Application() {
         // The Keystore, the session file and the HTTP objects start here, never on the main thread.
         scope.launch(Dispatchers.IO) {
             prefs.load()
+            cameraStatus.load()
             account.load()
             // A logout that a process death stopped: finish it before the UI shows (review 74).
             if (account.session == null && java.io.File(noBackupFilesDir, WIPE_MARK).exists()) withContext(Dispatchers.Main) { wipe() }
             _ready.value = true
+            // Only a folder upload holds a grant, and the queue does not survive the process: a grant here is left
+            // from a process death.
+            contentResolver.persistedUriPermissions.forEach {
+                runCatching { contentResolver.releasePersistableUriPermission(it.uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            }
             // The first screen does not wait for the offline index (review 103).
             offline.load()
             // Camera upload follows the session. Only when no job waits: a schedule() would stop the job that
@@ -85,6 +94,8 @@ class NuboApp : Application() {
                 if (inside) CameraJob.ensure(this@NuboApp, prefs.value.camera)
             }
         }
+        // The file picker shows the Nubo entry only with a session and no locked app lock.
+        scope.launch { DocsProvider.follow(this@NuboApp) }
     }
 
     /** Removes every local trace of the account: caches, thumbnails, offline files, queued transfers. */
@@ -95,7 +106,11 @@ class NuboApp : Application() {
         withContext(Dispatchers.IO) { pending.createNewFile() }
         transfers.cancelAll()
         FileProvider.clear()
+        DocsProvider.clear()
         CameraJob.cancel(this)
+        // The camera notifications speak of this account.
+        notifier.cameraWorks()
+        notifier.cameraSkippedDone()
         drive.clear()
         notes.clear()
         chats.clear()
@@ -106,6 +121,7 @@ class NuboApp : Application() {
             offline.clear()
             cacheDir.listFiles()?.forEach { it.deleteRecursively() }
             java.io.File(noBackupFilesDir, CameraJob.MARK_FILE).delete()
+            cameraStatus.clear()
         }
         prefs.edit { it.copy(camera = it.camera.copy(enabled = false, folder = null), folderViews = emptyMap()) }
         withContext(Dispatchers.IO) { pending.delete() }
