@@ -1,7 +1,5 @@
 package app.nubo.ui.search
 
-import android.os.SystemClock
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,11 +15,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -39,6 +41,7 @@ import app.nubo.NuboApp
 import app.nubo.app
 import app.nubo.data.AccountState
 import app.nubo.drive.Listing
+import app.nubo.drive.Tree
 import app.nubo.ui.Icons
 import app.nubo.ui.components.EmptyState
 import app.nubo.ui.components.ErrorState
@@ -61,7 +64,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Search by name in the whole drive. The names are encrypted on the server, so the app reads the full tree
- * once (one request) and searches on the phone. No search term leaves the phone (research F-68, F-91).
+ * once (one request) and searches on the phone. No search term leaves the phone (research F-68, F-91). The last
+ * read shows at once (also from the disk after a restart) and an old one is read again behind it (review P-03).
  */
 @Composable
 fun SearchScreen() {
@@ -72,8 +76,11 @@ fun SearchScreen() {
     // The saved state gets only the entry number; the text stays in memory (reviews 25, 47).
     val id = rememberSaveable { SearchEntries.new(app) }
     val entry = remember(id) { SearchEntries[id] }
-    var tree by remember { mutableStateOf(app.drive.searchTree) }
+    var tree by remember { mutableStateOf<Tree?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var refreshing by remember { mutableStateOf(false) }
+    // Pull to refresh: a new value reads the tree again, also when it is fresh.
+    var pulls by remember { mutableIntStateOf(0) }
     val focus = remember { FocusRequester() }
     val query = entry.query
     val hits = entry.hits
@@ -85,23 +92,27 @@ fun SearchScreen() {
         onDispose { if (Tab.entries.none { Route.Search in nav.stack(it) }) SearchEntries.remove(id) }
     }
     LaunchedEffect(Unit) { if (entry.query.isEmpty()) focus.requestFocus() }
-    LaunchedEffect(tree == null, error) {
+    LaunchedEffect(error, pulls) {
         if (error != null) return@LaunchedEffect
+        val root = app.account.session?.baseFolder ?: return@LaunchedEffect
         // Another device can change the drive: an old tree shows at once and is read again behind it.
-        val old = tree
-        if (old != null && SystemClock.elapsedRealtime() - app.drive.searchTreeAt < TREE_MAX_AGE_MS) return@LaunchedEffect
+        val old = tree ?: app.drive.cachedTree(root)?.also { tree = it }
+        if (pulls == 0 && old != null && app.drive.fresh(old, TREE_MAX_AGE_MS)) return@LaunchedEffect
+        refreshing = true
         try {
-            val root = app.account.session?.baseFolder ?: return@LaunchedEffect
-            tree = app.drive.tree(root).also { app.drive.searchTree = it }
+            tree = app.drive.readTree(root)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (old == null) error = userText(e) // a failed refresh keeps the old results
+            // A failed refresh keeps the old results; only a pull tells it.
+            if (old == null) error = userText(e) else if (pulls > 0) app.messenger.show(userText(e))
+        } finally {
+            refreshing = false
         }
     }
     // The names fold once for each tree, not for each key press (review 101).
     LaunchedEffect(tree) {
-        val all = tree ?: return@LaunchedEffect
+        val all = tree?.items ?: return@LaunchedEffect
         if (SearchEntries.index?.items !== all) SearchEntries.index = withContext(Dispatchers.Default) { SearchIndex.of(all) }
     }
     // A new key press cancels this search, and the search stops soon after (review 101).
@@ -134,9 +145,20 @@ fun SearchScreen() {
         }
         // The last results stay above the keyboard (review 92). The tab bar hides while the keyboard shows, so
         // this box reaches the bottom of the screen and pads for the whole keyboard.
-        Box(Modifier.fillMaxSize().imePadding()) {
+        val pull = rememberPullToRefreshState()
+        val showRefresh = refreshing && index != null
+        PullToRefreshBox(
+            isRefreshing = showRefresh,
+            onRefresh = { pulls++ },
+            state = pull,
+            modifier = Modifier.fillMaxSize().imePadding(),
+            indicator = { PullToRefreshDefaults.LoadingIndicator(state = pull, isRefreshing = showRefresh, modifier = Modifier.align(Alignment.TopCenter)) },
+        ) {
             when {
                 error != null -> ErrorState(error.orEmpty(), { error = null; tree = null }, Modifier.fillMaxSize())
+                // No spinner while the user types the first letters: the index from the disk is ready in a moment.
+                index == null && query.isBlank() ->
+                    EmptyState(Icons.Search, "Search by name", Modifier.fillMaxSize(), message = if (tree == null && refreshing) "Reading your drive…" else null)
                 index == null -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                     LoadingBox(Modifier.padding(top = 48.dp))
                     Text("Reading your drive…", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))

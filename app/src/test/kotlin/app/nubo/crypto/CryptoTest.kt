@@ -30,6 +30,21 @@ class CryptoTest {
         val ring = Keyring(2, listOf(first, second), null, Keyring.privateKey(Bytes.unb64(k("KEY_A_PKCS8"))), k("KEY_A_SPKI"))
         assertEquals(meta, ring.decryptMeta(k("V2_META_SECOND_KEY")))
         assertEquals(meta, ring.decryptMeta(k("V1_META_SECOND_KEY")))
+        // The last good key goes first for `002`; the other keys are still tried (review P-02).
+        assertEquals(meta, ring.decryptMeta(k("V2_META_FIRST_KEY")))
+        assertEquals(meta, ring.decryptMeta(k("V2_META_SECOND_KEY")))
+        assertEquals(meta, ring.decryptMeta(k("V1_META_FIRST_KEY")))
+    }
+
+    @Test
+    fun chunkAssociatedData() {
+        val key = DataKey(counting(32))
+        val sealed = key.encryptChunk(counting(100), aad = byteArrayOf(1, 2))
+        assertContentEquals(counting(100), key.decryptChunk(sealed, byteArrayOf(1, 2)))
+        assertFailsWith<GeneralSecurityException> { key.decryptChunk(sealed, byteArrayOf(1, 3)) }
+        assertFailsWith<GeneralSecurityException> { key.decryptChunk(sealed) }
+        // The same thread decrypts again after a failed tag check.
+        assertContentEquals(counting(100), key.decryptChunk(sealed, byteArrayOf(1, 2)))
     }
 
     @Test

@@ -1,5 +1,6 @@
 package app.nubo.drive
 
+import android.os.SystemClock
 import app.nubo.api.Api
 import app.nubo.api.ApiException
 import app.nubo.api.optText
@@ -11,23 +12,27 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /** Storage use and plan of the account. */
 data class Usage(val used: Long, val max: Long, val premium: Boolean)
 
 /**
- * Lists and changes the drive (research F-58..F-79). Listings are decrypted off the main thread and kept in a
- * small memory cache, so that Back and tab changes show at once. Every write goes through [WriteLock] and
- * then tells the screens which listings changed. Writes live in [Ops]; shares and links in [Sharing].
+ * Lists and changes the drive (research F-58..F-79). Listings are decrypted on all cores and kept in a small memory
+ * cache, so that Back and tab changes show at once; whole-tree reads stay in [Trees]. Every write goes through
+ * [WriteLock] and then tells the screens which listings changed. Writes live in [Ops]; shares and links in [Sharing].
  */
 class Drive(
     internal val api: Api,
     private val account: Account,
     private val offline: Offline,
     internal val scope: CoroutineScope,
+    /** The folder of the encrypted tree copies ([Trees]), in the cache folder. */
+    treeDir: File,
     /** Shows a short warning to the user (the snackbar). */
     internal val warn: (String) -> Unit = {},
 ) {
@@ -36,6 +41,11 @@ class Drive(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Listing, List<Item>>) = size > MAX_CACHED
     }
     private val _changed = MutableSharedFlow<Listing?>(extraBufferCapacity = 16)
+    private val trees = Trees(treeDir) { account.session?.cacheKey }
+
+    /** When a write of this app last changed a folder (elapsed ms). Older tree reads are not fresh. */
+    @Volatile
+    private var treeChangedAt = 0L
 
     /** A listing whose content changed; null means all of them. */
     val changed: SharedFlow<Listing?> = _changed
@@ -50,19 +60,23 @@ class Drive(
     fun cached(listing: Listing): List<Item>? = synchronized(cache) { cache[listing] }
 
     /**
-     * The whole own tree of the last search. Memory only; gone at logout and after a change in this app. Other
-     * devices can change the drive too: [searchTreeAt] tells the search when to read it again.
+     * The last tree read of [folder] (search: the root; Photos: the photo folder): from memory, from the disk, or the
+     * part of the root read. Null when there is none. Show it at once; read again when it is not [fresh].
      */
-    @Volatile
-    var searchTree: List<Item>? = null
-        set(value) {
-            field = value
-            searchTreeAt = android.os.SystemClock.elapsedRealtime()
-        }
+    suspend fun cachedTree(folder: String): Tree? = trees.get(folder, root)
 
-    @Volatile
-    var searchTreeAt = 0L
-        private set
+    /** Reads the tree of [folder] from the server and keeps it for [cachedTree]. */
+    suspend fun readTree(folder: String): Tree {
+        val at = SystemClock.elapsedRealtime()
+        return Tree(folder, tree(folder), at).also { trees.put(it, root, scope) }
+    }
+
+    /**
+     * True when [tree] is younger than [maxAgeMs] and no write of this app changed a folder after its read. Other
+     * devices can change the drive too, so a screen reads again after [maxAgeMs].
+     */
+    fun fresh(tree: Tree, maxAgeMs: Long): Boolean =
+        tree.at > treeChangedAt && SystemClock.elapsedRealtime() - tree.at < maxAgeMs
 
     /** Reads [listing] from the server (or the phone for [Listing.Offline]) and caches it. */
     suspend fun list(listing: Listing): List<Item> = guard {
@@ -82,12 +96,25 @@ class Drive(
         items
     }
 
-    /** Every file and folder under [folder], with no order (research F-65). For search and photos. */
+    /**
+     * Every file and folder under [folder], folders first (research F-65). For search, Photos ([readTree]) and folder
+     * downloads. Streamed: a large drive gives more than any answer limit (review R-65); only the items stay in memory.
+     */
     suspend fun tree(folder: String): List<Item> = guard {
         val ring = keys()
-        // Streamed: a large drive gives more than any answer limit (review R-65); only the items stay in memory.
-        api.postLarge("/v3/dir/download", JSONObject().put("uuid", folder).put("skipCache", false)) { Decode.tree(it, ring::decryptMeta) }
+        streamed("/v3/dir/download", JSONObject().put("uuid", folder).put("skipCache", false), mapOf(
+            // The tree also lists [folder] itself, with the parent "base".
+            "folders" to { o -> if (o.optString("parent") == "base") null else Decode.folder(o, Source.Own, "name", ring::decryptMeta) },
+            "files" to { o -> Decode.file(o, Source.Own, ring::decryptMeta) },
+        ))
     }
+
+    /**
+     * POST with an answer that [Decode.stream] reads while it comes in, on all cores (review P-01). The stream reader
+     * blocks its IO thread, so the decode waits there for its workers.
+     */
+    private suspend fun streamed(path: String, body: JSONObject, sections: Map<String, (JSONObject) -> Item?>): List<Item> =
+        api.postLarge(path, body) { r -> runBlocking { Decode.stream(r, sections) } }
 
     suspend fun usage(): Usage = guard {
         val o = api.get("/v3/user/info")
@@ -108,7 +135,7 @@ class Drive(
 
     /** Tells the screens that [listings] changed, and drops them from the cache. */
     fun invalidate(vararg listings: Listing?) {
-        searchTree = null
+        if (listings.any(::changesTree)) treeChangedAt = SystemClock.elapsedRealtime()
         synchronized(cache) {
             if (listings.any { it == null }) cache.clear() else listings.forEach { cache.remove(it) }
         }
@@ -117,17 +144,16 @@ class Drive(
     }
 
     fun clear() {
-        searchTree = null
+        trees.clear()
         synchronized(cache) { cache.clear() }
     }
 
     private suspend fun content(uuid: String): List<Item> {
-        val data = api.post("/v3/dir/content", JSONObject().put("uuid", uuid))
         val ring = keys()
-        return withContext(Dispatchers.Default) {
-            data.optJSONArray("folders").objects().mapNotNull { Decode.folder(it, Source.Own, "name", ring::decryptMeta) } +
-                data.optJSONArray("uploads").objects().mapNotNull { Decode.file(it, Source.Own, ring::decryptMeta) }
-        }
+        return streamed("/v3/dir/content", JSONObject().put("uuid", uuid), mapOf(
+            "folders" to { o -> Decode.folder(o, Source.Own, "name", ring::decryptMeta) },
+            "uploads" to { o -> Decode.file(o, Source.Own, ring::decryptMeta) },
+        ))
     }
 
     /** [owner]: the sharer of the root item; rows inside a shared folder do not name it. */
@@ -136,9 +162,9 @@ class Drive(
         val ring = keys()
         val decrypt = { text: String -> shared(ring, text) }
         return withContext(Dispatchers.Default) {
-            data.optJSONArray("folders").objects().mapNotNull { o ->
+            Decode.all(data.optJSONArray("folders").objects()) { o ->
                 Decode.folder(o, Source.SharedIn(o.optText("sharerEmail").ifEmpty { owner }), "metadata", decrypt)
-            } + data.optJSONArray("uploads").objects().mapNotNull { o ->
+            } + Decode.all(data.optJSONArray("uploads").objects()) { o ->
                 Decode.file(o, Source.SharedIn(o.optText("sharerEmail").ifEmpty { owner }), decrypt)
             }
         }
@@ -149,7 +175,7 @@ class Drive(
         val data = api.post("/v3/shared/out", JSONObject().put("uuid", "shared-out").put("receiverId", 0))
         val ring = keys()
         return withContext(Dispatchers.Default) {
-            fun group(list: List<JSONObject>, decode: (JSONObject, Source) -> Item?) = list.groupBy { it.optString("uuid") }.values.mapNotNull { rows ->
+            suspend fun group(list: List<JSONObject>, decode: (JSONObject, Source) -> Item?) = Decode.all(list.groupBy { it.optString("uuid") }.values.toList()) { rows ->
                 decode(rows.first(), Source.SharedOut(rows.map { it.optString("receiverEmail") }.distinct().joinToString(", ")))
             }
             group(data.optJSONArray("folders").objects()) { o, s -> Decode.folder(o, s, "metadata", ring::decryptMeta) } +
@@ -166,8 +192,8 @@ class Drive(
         val key = Links.metaKey(link.key)
         val source = Source.Link(link.uuid)
         return withContext(Dispatchers.Default) {
-            data.optJSONArray("folders").objects().mapNotNull { Decode.folder(it, source, "metadata", key::decrypt) } +
-                data.optJSONArray("files").objects().mapNotNull { Decode.file(it, source, key::decrypt) }
+            Decode.all(data.optJSONArray("folders").objects()) { Decode.folder(it, source, "metadata", key::decrypt) } +
+                Decode.all(data.optJSONArray("files").objects()) { Decode.file(it, source, key::decrypt) }
         }
     }
 
@@ -181,6 +207,9 @@ class Drive(
 
     internal companion object {
         const val MAX_CACHED = 48
+
+        /** Only a folder change (or a change of all) can change a tree; link, share and offline changes cannot. */
+        fun changesTree(change: Listing?): Boolean = change == null || change is Listing.Dir
 
         fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it) }
 

@@ -41,19 +41,30 @@ class Keyring(
 
     fun encryptMeta(text: String): String = dek?.encrypt(text) ?: masterKeys.first().encrypt(text)
 
-    /** Tries the key that the format names; for `002` and v1, every master key, the newest first. */
+    /**
+     * Tries the key that the format names; for `002` and v1, every master key. `002` starts with the key that opened
+     * the last `002` text: after a password change most names use an old key, and each wrong key costs a failed tag
+     * check (review P-02). v1 text (CBC, no tag) keeps the order newest first, because a wrong key can give garbage.
+     */
     fun decryptMeta(text: String): String {
         if (text.startsWith("003")) return (dek ?: throw GeneralSecurityException("No data key")).decrypt(text)
+        val gcm = text.startsWith("002")
+        val start = if (gcm) lastKey else 0
         var last: GeneralSecurityException? = null
-        for (key in masterKeys) {
+        for (n in masterKeys.indices) {
+            val i = (start + n) % masterKeys.size
             try {
-                return key.decrypt(text)
+                return masterKeys[i].decrypt(text).also { if (gcm) lastKey = i }
             } catch (e: GeneralSecurityException) {
                 last = e
             }
         }
         throw last ?: GeneralSecurityException("No master key")
     }
+
+    /** The index of the master key that opened the last `002` text. Threads can race: any value is a valid start. */
+    @Volatile
+    private var lastKey = 0
 
     /** The server-side hash of a file or folder name, so that it can find name clashes. */
     fun hashName(name: String): String {

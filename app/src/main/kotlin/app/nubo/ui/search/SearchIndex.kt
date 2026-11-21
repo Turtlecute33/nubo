@@ -63,7 +63,8 @@ internal class SearchIndex private constructor(val items: List<Item>, private va
             return SearchIndex(items, names)
         }
 
-        /** The case- and accent-insensitive form of a name. */
-        fun fold(s: String): String = MARKS.replace(Normalizer.normalize(s, Normalizer.Form.NFD), "").lowercase()
+        /** The case- and accent-insensitive form of a name. ASCII has no accents: no NFD and no regex (review P-04). */
+        fun fold(s: String): String =
+            if (s.all { it < '\u0080' }) s.lowercase() else MARKS.replace(Normalizer.normalize(s, Normalizer.Form.NFD), "").lowercase()
     }
 }

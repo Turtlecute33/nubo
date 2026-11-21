@@ -46,7 +46,7 @@ internal fun ImagePage(item: Item, current: Boolean, cache: PageCache, onTap: ()
             bitmap != null -> Image(bitmap, item.name, Modifier.fillMaxSize().zoomed(zoom), contentScale = ContentScale.Fit)
             error != null -> PageMessage(item, error, state::retry)
             else -> {
-                if (thumb != null) Image(thumb, null, Modifier.fillMaxSize().alpha(0.5f), contentScale = ContentScale.Fit)
+                if (thumb != null) Image(thumb.bitmap, null, Modifier.fillMaxSize().alpha(0.5f), contentScale = ContentScale.Fit)
                 LoadingIndicator()
             }
         }

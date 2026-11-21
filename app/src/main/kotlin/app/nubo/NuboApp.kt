@@ -54,7 +54,7 @@ class NuboApp : Application() {
     val account by lazy { Account(api, SessionStore(noBackupFilesDir, vault), { java.io.File(noBackupFilesDir, WIPE_MARK).createNewFile() }, ::wipe) }
     val offline by lazy { Offline(this, { account.session?.cacheKey }) }
     val content by lazy { Content(api, offline) }
-    val drive by lazy { Drive(api, account, offline, scope, messenger::show) }
+    val drive by lazy { Drive(api, account, offline, scope, java.io.File(cacheDir, "trees"), messenger::show) }
     val uploader by lazy { Uploader(drive) }
     val links by lazy { PublicLinks(api) }
     val thumbs by lazy { Thumbs(this, content, { account.session?.cacheKey }) }

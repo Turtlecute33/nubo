@@ -1,6 +1,5 @@
 package app.nubo.ui.photos
 
-import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -13,8 +12,9 @@ import androidx.compose.ui.platform.LocalContext
 import app.nubo.NuboApp
 import app.nubo.app
 import app.nubo.data.AccountState
+import app.nubo.drive.Drive
 import app.nubo.drive.Item
-import app.nubo.drive.Listing
+import app.nubo.drive.Tree
 import app.nubo.ui.components.userText
 import app.nubo.util.FileType
 import app.nubo.util.Format
@@ -36,10 +36,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 class Day(val key: Long, val label: String, val items: List<Item>)
 
 /**
- * The media of the last read photo folder, while the process lives. Tab changes show it at once, with no new
- * tree read while it is fresh (review 52). It goes away when the session ends, so that another account never
- * sees it. Memory only, never on the disk. It also keeps the name of the photo folder, because the settings
- * file keeps only the UUID (review 63).
+ * The media of the last shown photo folder, while the process lives. Tab changes show it at once, with no new
+ * tree read while its read is fresh (review 52). It goes away when the session ends, so that another account never
+ * sees it. Memory only; the tree read itself is in [app.nubo.drive.Trees]. It also keeps the name of the photo
+ * folder, because the settings file keeps only the UUID (review 63).
  */
 internal object PhotoCache {
     @Volatile
@@ -48,13 +48,9 @@ internal object PhotoCache {
     @Volatile
     var media: List<Item>? = null
 
-    /** When the read of [media] started (elapsed ms). */
+    /** The tree read that [media] comes from. */
     @Volatile
-    var readAt = 0L
-
-    /** When a folder of the drive last changed (elapsed ms). */
-    @Volatile
-    private var changedAt = 0L
+    var tree: Tree? = null
 
     /** The photo folder UUID and its name. */
     @Volatile
@@ -62,26 +58,16 @@ internal object PhotoCache {
 
     private val watching = AtomicBoolean(false)
 
-    /**
-     * Clears the cache at each logout, and marks it old at each drive change, also while Photos does not show.
-     * Starts once for the process.
-     */
+    /** Clears the cache at each logout. Starts once for the process. */
     fun watch(app: NuboApp) {
         if (!watching.compareAndSet(false, true)) return
         app.scope.launch {
             app.account.state.collect { if (it !is AccountState.LoggedIn) clear() }
         }
-        app.scope.launch {
-            app.drive.changed.collect { if (affects(it)) changedAt = SystemClock.elapsedRealtime() }
-        }
     }
 
-    /** True when the media of [uuid] are here, newer than the last drive change, and not older than [FRESH_MS]. */
-    fun fresh(uuid: String): Boolean =
-        folder == uuid && media != null && readAt > changedAt && SystemClock.elapsedRealtime() - readAt < FRESH_MS
-
-    /** Only folder changes can change the photos; offline, link and share changes cannot. */
-    fun affects(change: Listing?): Boolean = change == null || change is Listing.Dir
+    /** True when the media of [uuid] are here and their tree read is fresh (not older than [FRESH_MS]). */
+    fun fresh(drive: Drive, uuid: String): Boolean = folder == uuid && media != null && tree?.let { drive.fresh(it, FRESH_MS) } == true
 
     fun name(uuid: String?): String? = named?.takeIf { it.first == uuid }?.second
 
@@ -92,7 +78,7 @@ internal object PhotoCache {
     fun clear() {
         folder = null
         media = null
-        readAt = 0
+        tree = null
         named = null
     }
 
@@ -139,41 +125,39 @@ class PhotosModel(private val app: NuboApp, private val scope: CoroutineScope) {
         private set
     private var job: Job? = null
 
-    /** Shows [uuid]'s media: from the cache when it has them, then from the server if the cache is not fresh. */
+    /**
+     * Shows [uuid]'s media: from the cache, else from the last tree read (the disk, or the part of the search read),
+     * then reads the tree when that read is not fresh (review P-03).
+     */
     fun show(uuid: String?) {
-        if (uuid == folder && (media != null || refreshing)) return
+        if (uuid == folder && (media != null || job?.isActive == true)) return
         folder = uuid
         error = null
-        val cached = PhotoCache.media.takeIf { PhotoCache.folder == uuid }
-        media = cached
+        media = PhotoCache.media.takeIf { PhotoCache.folder == uuid }
         days = emptyList()
-        if (cached != null) scope.launch {
-            val grouped = withContext(Dispatchers.Default) { group(cached) }
-            if (media === cached) days = grouped
-        }
-        when {
-            uuid == null -> job?.cancel()
-            !PhotoCache.fresh(uuid) -> refresh()
-        }
+        job?.cancel()
+        refreshing = false
+        if (uuid != null) load(uuid, read = false)
     }
 
     fun refresh() {
-        val uuid = folder ?: return
+        load(folder ?: return, read = true)
+    }
+
+    /** [read]: read the tree from the server, also when the last read is fresh (pull to refresh, a change). */
+    private fun load(uuid: String, read: Boolean) {
         job?.cancel()
-        refreshing = true
         job = scope.launch {
             try {
-                val started = SystemClock.elapsedRealtime()
-                val tree = app.drive.tree(uuid)
-                val (list, grouped) = withContext(Dispatchers.Default) {
-                    val l = tree.filter { !it.folder && (it.type == FileType.IMAGE || it.type == FileType.VIDEO) }.sortedByDescending(::time)
-                    l to group(l)
+                val cached = media
+                if (cached != null) {
+                    if (days.isEmpty()) days = withContext(Dispatchers.Default) { group(cached) }
+                } else if (!read) {
+                    app.drive.cachedTree(uuid)?.let { show(uuid, it) }
                 }
-                PhotoCache.folder = uuid
-                PhotoCache.media = list
-                PhotoCache.readAt = started
-                media = list
-                days = grouped
+                if (!read && PhotoCache.fresh(app.drive, uuid)) return@launch
+                refreshing = true
+                show(uuid, app.drive.readTree(uuid))
                 error = null
             } catch (e: CancellationException) {
                 throw e
@@ -186,12 +170,24 @@ class PhotosModel(private val app: NuboApp, private val scope: CoroutineScope) {
         }
     }
 
+    private suspend fun show(uuid: String, tree: Tree) {
+        val (list, grouped) = withContext(Dispatchers.Default) {
+            val l = tree.items.filter { !it.folder && (it.type == FileType.IMAGE || it.type == FileType.VIDEO) }.sortedByDescending(::time)
+            l to group(l)
+        }
+        PhotoCache.folder = uuid
+        PhotoCache.media = list
+        PhotoCache.tree = tree
+        media = list
+        days = grouped
+    }
+
     /**
      * Reads again after folder changes. Camera upload sends one change for each file: the read waits until
      * the changes stop for a moment, so that a burst gives one read.
      */
     suspend fun watch() {
-        app.drive.changed.filter(PhotoCache::affects).collectLatest {
+        app.drive.changed.filter { Drive.changesTree(it) }.collectLatest {
             delay(QUIET_MS)
             if (folder != null) refresh()
         }

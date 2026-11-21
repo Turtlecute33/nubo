@@ -153,3 +153,17 @@ data. Media access was given for the test and taken back after it; all settings 
 | App lock on, app in the background | No root; listing gives nothing; a read fails with "Nubo is locked or logged out" |
 | App lock: the lock screen shows, then unlock | No root while the lock screen shows; the root is back after the unlock |
 | JobScheduler | A ready content-trigger job once waited more than 2 min to start (the system's choice); "Check now" ran it |
+
+## 2026-11-21, speed work for 0.5.0 (release build, installed over 0.3.0)
+
+The test account stayed logged in. 0.4.0 and 0.5.0 were measured with temporary timing logs; the details and the
+table are in [review/performance-2026-11-21.md](../review/performance-2026-11-21.md).
+
+| Test | Result |
+|---|---|
+| Unit tests, lint | 91 tests pass; lint: no issues |
+| Release APK | 3.49 MB |
+| Search, 71,027 items, after a cold start | Index in 0.14–0.18 s from the disk copy (0.4.0: 16.9–18.0 s). With no copy: 11.2–13.2 s |
+| Photos tab, 2,006 media | Grid in 0.12–0.16 s from the disk copy (0.4.0: 16.0–17.3 s) |
+| Folder with 5,000 files | Streamed read 0.51–0.87 s against 0.75–1.12 s for the whole answer, in the same runs |
+| Final build | Search, typing, pull to refresh, Photos: correct, no crash. The app was stopped after the test |

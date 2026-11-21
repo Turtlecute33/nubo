@@ -4,6 +4,8 @@ import android.util.JsonReader
 import app.nubo.api.eachObject
 import app.nubo.api.optText
 import app.nubo.crypto.DataKey
+import app.nubo.util.Parallel
+import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 import java.io.IOException
 
@@ -64,28 +66,48 @@ object Decode {
     }.getOrNull()
 
     /**
-     * The `data` of `/v3/dir/download` (research F-65) from [r], one entry at a time: folders first, then files,
-     * with no root folder. More than [MAX_TREE] items fail, before they take all the memory of the app.
+     * Each entry of [list], decoded on all cores in batches (review P-01). The order stays; an entry that does not
+     * decode is left out. Shares need one RSA decrypt for each entry, so a large share gains the most.
      */
-    fun tree(r: JsonReader, decrypt: (String) -> String): List<Item> {
-        val dirs = ArrayList<Item>()
-        val files = ArrayList<Item>()
-        fun add(list: MutableList<Item>, item: Item?) {
-            if (item == null) return
-            if (dirs.size + files.size >= MAX_TREE) throw IOException("This folder has too many items")
-            list += item
-        }
+    suspend fun <T> all(list: List<T>, decode: (T) -> Item?): List<Item> = coroutineScope {
+        val parts = Parallel<List<T>, List<Item>>(this) { batch -> batch.mapNotNull(decode) }
+        for (batch in list.chunked(BATCH)) parts.add(batch)
+        parts.results().flatten()
+    }
+
+    /**
+     * The arrays named in [sections] of the object at [r] (a listing or the `data` of `/v3/dir/download`, research
+     * F-65), read one entry at a time. Batches decode on all cores while the answer still comes in (review P-01).
+     * The result has the sections in the order of [sections]. More than [MAX_TREE] entries fail, before they take
+     * all the memory of the app.
+     */
+    suspend fun stream(r: JsonReader, sections: Map<String, (JSONObject) -> Item?>): List<Item> = coroutineScope {
+        val parts = sections.mapValues { (_, decode) -> Parallel<List<JSONObject>, List<Item>>(this) { batch -> batch.mapNotNull(decode) } }
+        var count = 0
         r.beginObject()
         while (r.hasNext()) {
-            when (r.nextName()) {
-                "files" -> r.eachObject { add(files, file(it, Source.Own, decrypt)) }
-                "folders" -> r.eachObject { if (it.optString("parent") != "base") add(dirs, folder(it, Source.Own, "name", decrypt)) }
-                else -> r.skipValue()
+            val part = parts[r.nextName()]
+            if (part == null) {
+                r.skipValue()
+                continue
             }
+            var batch = ArrayList<JSONObject>(BATCH)
+            r.eachObject {
+                if (++count > MAX_TREE) throw IOException("This folder has too many items")
+                batch += it
+                if (batch.size == BATCH) {
+                    part.add(batch)
+                    batch = ArrayList(BATCH)
+                }
+            }
+            if (batch.isNotEmpty()) part.add(batch)
         }
         r.endObject()
-        return dirs + files
+        parts.values.flatMap { it.results().flatten() }
     }
+
+    /** Entries for one task of [all] and [stream]: about 20 ms of work on a phone core (estimate). */
+    private const val BATCH = 256
 
     const val MAX_TREE = 200_000
 

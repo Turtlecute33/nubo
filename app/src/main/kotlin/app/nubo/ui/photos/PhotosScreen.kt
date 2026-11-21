@@ -1,6 +1,5 @@
 package app.nubo.ui.photos
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -52,7 +51,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
@@ -68,6 +66,7 @@ import app.nubo.ui.components.ErrorState
 import app.nubo.ui.components.FileTypeIcon
 import app.nubo.ui.components.IconAction
 import app.nubo.ui.components.LoadingBox
+import app.nubo.ui.components.ThumbImage
 import app.nubo.ui.components.rememberThumb
 import app.nubo.ui.drive.FolderPicker
 import app.nubo.ui.nav.LocalNav
@@ -215,7 +214,7 @@ private fun Cell(item: Item, modifier: Modifier, onClick: () -> Unit) {
         if (thumb == null) {
             FileTypeIcon(item.type, size = 40.dp)
         } else {
-            Image(thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            ThumbImage(thumb, Modifier.fillMaxSize())
         }
         if (item.type == FileType.VIDEO) {
             Icon(

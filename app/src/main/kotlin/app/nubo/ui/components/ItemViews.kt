@@ -1,5 +1,6 @@
 package app.nubo.ui.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -40,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +53,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -114,15 +117,34 @@ fun FileTypeIcon(type: FileType, modifier: Modifier = Modifier, size: Dp = 40.dp
     }
 }
 
+/** A thumbnail. [late]: it was not in memory at the first frame of its cell, so it fades in ([ThumbImage]). */
+@Immutable
+class Thumb(val bitmap: ImageBitmap, val late: Boolean)
+
 /** The thumbnail of [item], loaded on first show; the type icon stays behind it while it loads and after an error. */
 @Composable
-fun rememberThumb(item: Item): ImageBitmap? {
+fun rememberThumb(item: Item): Thumb? {
     val thumbs = LocalContext.current.app.thumbs
-    var bitmap by remember(item.uuid, item.key) { mutableStateOf(thumbs.peek(item)) }
+    val first = remember(item.uuid, item.key) { thumbs.peek(item) }
+    var bitmap by remember(item.uuid, item.key) { mutableStateOf(first) }
     if (bitmap == null && thumbs.supports(item)) {
         LaunchedEffect(item.uuid, item.key) { bitmap = thumbs.get(item) }
     }
-    return bitmap
+    return bitmap?.let { remember(it) { Thumb(it, late = first == null) } }
+}
+
+/**
+ * [thumb], cropped to fill. One that came from the disk or the network fades in, so a scroll does not show sudden
+ * pictures; one from memory shows at once. "Remove animations" makes the fade instant.
+ */
+@Composable
+fun ThumbImage(thumb: Thumb, modifier: Modifier = Modifier) {
+    val alpha = remember(thumb) { Animatable(if (thumb.late) 0f else 1f) }
+    if (thumb.late) {
+        val spec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+        LaunchedEffect(thumb) { alpha.animateTo(1f, spec) }
+    }
+    Image(thumb.bitmap, null, modifier.graphicsLayer { this.alpha = alpha.value }, contentScale = ContentScale.Crop)
 }
 
 @Composable
@@ -135,7 +157,7 @@ fun ItemThumb(item: Item, modifier: Modifier = Modifier, size: Dp = 40.dp, corne
     val thumb = rememberThumb(item)
     Box(modifier.size(size).clip(RoundedCornerShape(size * cornerFraction))) {
         FileTypeIcon(item.type, Modifier.fillMaxSize(), size, folderIcon)
-        if (thumb != null) Image(thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (thumb != null) ThumbImage(thumb, Modifier.fillMaxSize())
         if (thumb != null && item.type == FileType.VIDEO) {
             Icon(Icons.PlayArrowFill, null, Modifier.size(size * 0.4f).align(Alignment.Center), tint = Color.White)
         }
@@ -231,7 +253,7 @@ fun ItemTile(
                         FileTypeIcon(item.type, size = 72.dp, override = if (item.folder) Icons.FolderFill else null)
                     }
                 } else {
-                    Image(thumb, null, Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium), contentScale = ContentScale.Crop)
+                    ThumbImage(thumb, Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium))
                     if (item.type == FileType.VIDEO) {
                         Icon(Icons.PlayArrowFill, null, Modifier.size(32.dp).align(Alignment.Center), tint = Color.White)
                     }

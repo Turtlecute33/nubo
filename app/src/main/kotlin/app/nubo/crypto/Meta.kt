@@ -36,8 +36,7 @@ class MasterKey(val raw: ByteArray) : MetaKey {
             text.startsWith("U2FsdGVk") -> MetaV1.decrypt(raw, text)
             text.startsWith("002") && text.length > 15 -> {
                 val nonce = text.substring(3, 15).encodeToByteArray()
-                val cipher = Cipher.getInstance(GCM).apply { init(Cipher.DECRYPT_MODE, aes, GCMParameterSpec(128, nonce)) }
-                cipher.doFinal(Bytes.unb64(text.substring(15))).decodeToString()
+                decryptor(aes, GCMParameterSpec(128, nonce)).doFinal(Bytes.unb64(text.substring(15))).decodeToString()
             }
             else -> throw GeneralSecurityException("Unknown format")
         }
@@ -66,23 +65,27 @@ class DataKey(val bytes: ByteArray) : MetaKey {
 
     override fun decrypt(text: String): String = guard {
         if (!text.startsWith("003") || text.length < 27) throw GeneralSecurityException("Unknown format")
-        val cipher = Cipher.getInstance(GCM).apply { init(Cipher.DECRYPT_MODE, aes, GCMParameterSpec(128, text.substring(3, 27).unhex())) }
-        cipher.doFinal(Bytes.unb64(text.substring(27))).decodeToString()
+        decryptor(aes, GCMParameterSpec(128, text.substring(3, 27).unhex())).doFinal(Bytes.unb64(text.substring(27))).decodeToString()
     }
 
-    /** One file chunk: a fresh nonce, then the GCM output (ciphertext and tag). */
-    fun encryptChunk(plain: ByteArray, length: Int = plain.size): ByteArray {
+    /**
+     * One file chunk: a fresh nonce, then the GCM output (ciphertext and tag). [aad]: data that the tag also covers
+     * (the place of a record in a local cache file); file chunks have none.
+     */
+    fun encryptChunk(plain: ByteArray, length: Int = plain.size, aad: ByteArray? = null): ByteArray {
         val nonce = Bytes.random(12)
         val cipher = Cipher.getInstance(GCM).apply { init(Cipher.ENCRYPT_MODE, aes, GCMParameterSpec(128, nonce)) }
+        aad?.let(cipher::updateAAD)
         val out = ByteArray(12 + cipher.getOutputSize(length))
         nonce.copyInto(out)
         cipher.doFinal(plain, 0, length, out, 12)
         return out
     }
 
-    fun decryptChunk(data: ByteArray): ByteArray = guard {
+    fun decryptChunk(data: ByteArray, aad: ByteArray? = null): ByteArray = guard {
         if (data.size < 28) throw GeneralSecurityException("Chunk too short")
-        val cipher = Cipher.getInstance(GCM).apply { init(Cipher.DECRYPT_MODE, aes, GCMParameterSpec(128, data, 0, 12)) }
+        val cipher = decryptor(aes, GCMParameterSpec(128, data, 0, 12))
+        aad?.let(cipher::updateAAD)
         cipher.doFinal(data, 12, data.size - 12)
     }
 
@@ -122,6 +125,15 @@ fun textKey(text: String): MetaKey = when {
 }
 
 private const val GCM = "AES/GCM/NoPadding"
+
+/**
+ * One AES-GCM decrypt cipher for each thread (review P-02): [Cipher.getInstance] looks up the provider at each call,
+ * and a tree read decrypts one name for each of up to 200,000 items. [Cipher.init] resets it for each use, also
+ * after a failed tag check. Encryption keeps a new cipher for each call.
+ */
+private val decryptors: ThreadLocal<Cipher> = ThreadLocal.withInitial { Cipher.getInstance(GCM) }
+
+private fun decryptor(key: SecretKeySpec, spec: GCMParameterSpec): Cipher = decryptors.get().apply { init(Cipher.DECRYPT_MODE, key, spec) }
 
 /** Every decrypt failure is a [GeneralSecurityException], also bad base64 or hex. */
 private inline fun <T> guard(block: () -> T): T = try {

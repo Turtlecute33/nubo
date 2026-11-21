@@ -20,12 +20,12 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
-import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.ByteBuffer
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -123,8 +123,9 @@ class Http(private val context: Context) : Transport {
     }
 
     /**
-     * Through the [HttpURLConnection] of the same engine: its stream reads the answer only as fast as [read] takes
-     * it. The same idle limit as [send]; a cancel interrupts the blocked read.
+     * The answer as an [InputStream] for [read], on this IO thread. The network side reads ahead up to [AHEAD]
+     * buffers while [read] parses, so that the download and the parse overlap (review P-01); a full queue pauses
+     * the download. The same idle limit as [send]; a cancel interrupts the blocked read and cancels the request.
      */
     override suspend fun <T> stream(method: String, url: String, headers: Map<String, String>, body: ByteArray?, read: (Int, InputStream) -> T): T {
         requireHttps(url)
@@ -132,12 +133,21 @@ class Http(private val context: Context) : Transport {
             withContext(Dispatchers.IO) {
                 withIdleTimeout { activity ->
                     val engine = acquire()
+                    val pipe = Pipe(activity)
                     try {
-                        val c = engine.openConnection(URI(url).toURL()) as HttpURLConnection
+                        val request = engine.newUrlRequestBuilder(url, executor, pipe)
+                            .setHttpMethod(method)
+                            .setCacheDisabled(true)
+                            .apply {
+                                headers.forEach { (k, v) -> addHeader(k, v) }
+                                if (body != null) setUploadDataProvider(BytesUpload(body, activity), executor)
+                            }
+                            .build()
+                        request.start()
                         try {
-                            runInterruptible { exchange(c, method, headers, body, activity, read) }
+                            runInterruptible { read(pipe.code(), pipe) }
                         } finally {
-                            c.disconnect()
+                            request.cancel() // nothing when the answer is complete
                         }
                     } finally {
                         release()
@@ -149,35 +159,100 @@ class Http(private val context: Context) : Transport {
         }
     }
 
-    private fun <T> exchange(
-        c: HttpURLConnection,
-        method: String,
-        headers: Map<String, String>,
-        body: ByteArray?,
-        activity: AtomicLong,
-        read: (Int, InputStream) -> T,
-    ): T {
-        c.requestMethod = method
-        c.instanceFollowRedirects = false
-        c.useCaches = false
-        headers.forEach(c::setRequestProperty)
-        if (body != null) {
-            c.doOutput = true
-            c.setFixedLengthStreamingMode(body.size)
-            c.outputStream.use { it.write(body) }
+    /**
+     * Gives the body of a [stream] request to a blocking reader. The network thread starts the next read at once
+     * while fewer than [AHEAD] buffers wait; else the reader starts it when the queue is half empty.
+     */
+    private class Pipe(private val activity: AtomicLong) : InputStream(), UrlRequest.Callback {
+        /** Body parts ([ByteArray]), then [End] or the failure ([Throwable]). */
+        private val queue = LinkedBlockingQueue<Any>()
+        private val started = CountDownLatch(1)
+        private val buffer = ByteBuffer.allocateDirect(BUFFER)
+        private val lock = Any()
+
+        /** The request while it waits for room in the queue. */
+        private var paused: UrlRequest? = null
+
+        @Volatile
+        private var status = 0
+
+        @Volatile
+        private var failure: Throwable? = null
+        private var part = ByteArray(0)
+        private var at = 0
+
+        /** The HTTP status; waits for the start of the answer. */
+        fun code(): Int {
+            started.await()
+            if (status == 0) throw failure ?: IOException("No answer")
+            return status
         }
-        val code = c.responseCode
-        if (code in 300..399) throw IOException("Unexpected redirect")
-        activity.set(SystemClock.elapsedRealtime())
-        val input = (if (code >= 400) c.errorStream else c.inputStream) ?: InputStream.nullInputStream()
-        return Watched(input, activity).use { read(code, it) }
-    }
 
-    /** Each read counts as activity for the idle limit. */
-    private class Watched(input: InputStream, private val activity: AtomicLong) : FilterInputStream(input) {
-        override fun read(): Int = super.read().also { activity.set(SystemClock.elapsedRealtime()) }
+        override fun read(): Int {
+            val one = ByteArray(1)
+            return if (read(one, 0, 1) == -1) -1 else one[0].toInt() and 0xff
+        }
 
-        override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { activity.set(SystemClock.elapsedRealtime()) }
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            if (len == 0) return 0
+            while (at == part.size) {
+                val next = queue.take()
+                if (next === End || next is Throwable) {
+                    queue.put(next) // the same answer for a later read
+                    if (next is Throwable) throw next
+                    return -1
+                }
+                part = next as ByteArray
+                at = 0
+                synchronized(lock) {
+                    val request = paused
+                    if (request != null && queue.size <= AHEAD / 2) {
+                        paused = null
+                        request.read(buffer)
+                    }
+                }
+            }
+            val n = minOf(len, part.size - at)
+            System.arraycopy(part, at, b, off, n)
+            at += n
+            activity.set(SystemClock.elapsedRealtime())
+            return n
+        }
+
+        override fun onRedirectReceived(request: UrlRequest, info: UrlResponseInfo, newLocationUrl: String) {
+            failure = IOException("Unexpected redirect")
+            request.cancel()
+        }
+
+        override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
+            activity.set(SystemClock.elapsedRealtime())
+            status = info.httpStatusCode
+            started.countDown()
+            request.read(buffer)
+        }
+
+        override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
+            activity.set(SystemClock.elapsedRealtime())
+            byteBuffer.flip()
+            val bytes = ByteArray(byteBuffer.remaining())
+            byteBuffer.get(bytes)
+            byteBuffer.clear()
+            if (bytes.isNotEmpty()) queue.put(bytes)
+            synchronized(lock) { if (queue.size < AHEAD) request.read(byteBuffer) else paused = request }
+        }
+
+        override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) = queue.put(End)
+
+        override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: HttpException) = end(error)
+
+        override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) = end(failure ?: IOException("Canceled"))
+
+        private fun end(e: Throwable) {
+            queue.put(failure ?: e.also { failure = it })
+            started.countDown()
+        }
+
+        private object End
     }
 
     /**
@@ -295,6 +370,9 @@ class Http(private val context: Context) : Transport {
         /** The same on every device: no model, OS version or app version. */
         const val USER_AGENT = "nubo"
         private const val BUFFER = 128 shl 10
+
+        /** Buffers that a [stream] reads ahead at most: 4 MiB. */
+        private const val AHEAD = 32
         private const val IDLE_TIMEOUT_MS = 60_000L
         private const val IDLE_MS = 5 * 60_000L
 

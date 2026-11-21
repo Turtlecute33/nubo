@@ -180,7 +180,8 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
                 r.endObject()
             } catch (e: Exception) {
                 // A network error in the stream keeps its type (a retry can help); anything else, also JSON that
-                // ends too soon, is a bad answer.
+                // ends too soon, is a bad answer. A cancel interrupts a [read] that waits for its decode workers.
+                if (e is InterruptedException) throw e
                 if (e is IOException && e !is MalformedJsonException && e !is EOFException) throw e
                 throw ApiException(if (code >= 500) "server_error" else "bad_answer", code)
             }

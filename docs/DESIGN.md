@@ -20,6 +20,8 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
   open from Home and Me; the four tabs stay.
 - App lock: a screen lock, optional, off by default. It does not encrypt data (§7).
 - Repository: public on GitHub, `Turtlecute33/nubo`. Releases there and on Zapstore.
+- Speed (owner, 2026-11-21): search and Photos keep their last tree read on the disk, encrypted with the cache
+  key, so that they show at once after a restart ([review/performance-2026-11-21.md](review/performance-2026-11-21.md), P-03).
 - Protocol: a clean-room Kotlin version. The code reference is the MIT Go SDK (`filen-sdk-go`).
   The AGPL SDKs (`filen-rs`, `filen-sdk-ts`) are read for facts only. No code is copied from them.
   The unit tests use the known-answer values of `filen-rs` as data (F-11).
@@ -29,7 +31,8 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 1. Security and privacy: the keys and the plain data stay on the phone and in memory where possible.
 2. Correct data: the app never writes metadata that the official apps cannot read.
 3. Minimal: few features that work well, a small APK, one third-party library.
-4. Fast: lists show from memory at once, transfers run in parallel, no work on the main thread.
+4. Fast: lists show from memory at once (search and Photos also from the disk), listings decrypt on all cores,
+   transfers run in parallel, no work on the main thread.
 5. A clean Material 3 Expressive UI in the style of MegaGlass.
 
 ## 3. Non-goals
@@ -60,6 +63,11 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 - State: `StateFlow` and Compose state. Listings stay in a small memory cache in `Drive`; screens
   show the cached list first, then the server's list. Each write tells the screens which listings
   changed (`Drive.changed`).
+- Whole-tree reads (search, Photos) stay in `Trees`: in memory and on the disk (§6). Search and Photos share
+  one read: a folder in the root read gets its part of it. A screen shows the last read at once and reads
+  again when it is old (search 60 s, Photos 5 min) or when a write of this app changed a folder.
+- Listings and trees stream in and decrypt on all cores while the answer still comes in (`Decode.stream`,
+  `util/Parallel`). The stream reads up to 4 MiB ahead of the parser (`Http.stream`).
 
 ## 5. Dependencies
 
@@ -86,6 +94,7 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 | Offline files | `noBackupFilesDir/offline/<uuid>/<chunk>` | The chunks as the server sends them, still encrypted with the file key |
 | Offline index (names, file keys) | `noBackupFilesDir/offline/index.bin` | `003` with the session cache key |
 | Thumbnails | `cacheDir/thumbs/<hash>` | AES-256-GCM with the session cache key |
+| Tree copies for search and Photos (names, file keys), at most two | `cacheDir/trees/<hash>` | AES-256-GCM with the session cache key; each record is bound to its file and place |
 | Camera upload mark | `noBackupFilesDir/camera-mark.json` | Not secret: a MediaStore ID and a time |
 | Logout mark | `noBackupFilesDir/wipe-pending` | Empty; the next start finishes a stopped wipe (review 74) |
 | Notes, chats, contacts, their keys | Memory only | Not on the disk; gone at logout and when the process ends |
@@ -94,8 +103,8 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 - No plain file content goes to the disk. Viewers read chunks into memory. "Open with" and "Send a
   copy" give other apps a proxy file descriptor that decrypts on read (§7).
 - Downloads go to `Download/Nubo` through MediaStore: no storage permission.
-- Logout deletes the session, the offline files, the thumbnails, the cache, the camera mark and the
-  queued transfers.
+- Logout deletes the session, the offline files, the thumbnails, the cache (with the tree copies), the camera
+  mark and the queued transfers.
 - Backups and device transfers exclude all data (`data_extraction_rules.xml`, `allowBackup=false`).
 
 ## 7. Security
@@ -178,7 +187,8 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
   the v2 login with 2FA against a scripted server; download order, size and hash checks; name rules;
   item decoding; sort order; settings file; link URLs and link passwords; note and chat keys and
   formats against the vectors of the research (N-71, C-62); checklist HTML, previews and type
-  conversions; the unread rule of chats.
+  conversions; the unread rule of chats; the tree copies (read back, a wrong key, a damaged or short file,
+  the part of the root read, the newest read wins); the decode on all cores keeps the order.
 - Not tested by the developer: anything against the real Filen servers. Live tests are for the owner
   only ([LIVE-TESTS.md](LIVE-TESTS.md)).
 - Not tested yet: v1 and v3 accounts with real data, camera upload on a real phone, the PDF and media

@@ -62,8 +62,8 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
   phone has it), in storage that is not in backups.
 - **No plain copy of your files on the disk.** Viewers decrypt into memory. "Open with" and "Send a
   copy" give the other app a file handle that decrypts while it reads; no decrypted file is
-  written. Offline files stay encrypted as Filen stores them. Thumbnails are encrypted with a key
-  of the session.
+  written. Offline files stay encrypted as Filen stores them. Thumbnails, and the copy of the file
+  list that makes search and Photos show at once, are encrypted with a key of the session.
 - **The file picker entry is read only.** An app gets only the files that you pick for it, and it reads
   them from a file handle that decrypts while it reads: no decrypted file is written. The entry is not
   there while you are logged out, or while the app lock is on and the app is locked.
@@ -80,8 +80,8 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
   show as text only: Nubo never runs them as HTML and never loads a link or an avatar from them.
 - **App lock** (optional) uses your fingerprint or your screen lock. It hides the app and its
   preview in recent apps; it does not encrypt data.
-- **Logout** deletes the session, the offline files, the thumbnails and the queued transfers from
-  the phone.
+- **Logout** deletes the session, the offline files, the thumbnails, the file list copy and the queued
+  transfers from the phone.
 
 ## Privacy
 

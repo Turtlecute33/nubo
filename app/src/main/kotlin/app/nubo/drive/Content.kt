@@ -29,14 +29,17 @@ class Content(private val api: Api, private val local: ChunkSource) {
         return decrypt(item, local.encrypted(item, index) ?: api.downloadChunk(item.region, item.bucket, item.uuid, index))
     }
 
-    /** The whole file in memory; for viewers of small files. Throws when the file is larger than [max]. */
-    suspend fun bytes(item: Item, max: Long): ByteArray {
+    /**
+     * The whole file in memory; for viewers of small files. Throws when the file is larger than [max]. [first]: the
+     * plain chunk 0 when the caller has it already (a thumbnail that tried the EXIF picture first).
+     */
+    suspend fun bytes(item: Item, max: Long, first: ByteArray? = null): ByteArray {
         // A negative size would pass "> max" and wrap in toInt() to a 2 GB array.
         if (item.size !in 0..max) throw IOException("File too large to open here")
         // One array of the final size: no second copy of a large image in memory.
         val out = ByteArray(item.size.toInt())
         var at = 0
-        write(item, object : java.io.OutputStream() {
+        write(item, first = first, out = object : java.io.OutputStream() {
             override fun write(b: Int) = throw UnsupportedOperationException()
             override fun write(b: ByteArray, off: Int, len: Int) {
                 if (at + len > out.size) throw IOException("The file size does not match")
@@ -52,7 +55,7 @@ class Content(private val api: Api, private val local: ChunkSource) {
      * bytes done, on a background thread. Throws [GeneralSecurityException] when a chunk or the whole-file hash
      * does not match. The hash runs on [Dispatchers.Default]: the caller can be the main thread (review 42).
      */
-    suspend fun write(item: Item, out: OutputStream, progress: (Long) -> Unit) = withContext(Dispatchers.Default) {
+    suspend fun write(item: Item, out: OutputStream, first: ByteArray? = null, progress: (Long) -> Unit) = withContext(Dispatchers.Default) {
         val count = chunkCount(item)
         val check = Check(item)
         var next = 0
@@ -60,7 +63,7 @@ class Content(private val api: Api, private val local: ChunkSource) {
         while (next < count || window.isNotEmpty()) {
             while (next < count && window.size < PARALLEL) {
                 val i = next++
-                window.addLast(async { chunk(item, i) })
+                window.addLast(async { if (i == 0 && first != null) first else chunk(item, i) })
             }
             val plain = window.removeFirst().await()
             withContext(Dispatchers.IO) { out.write(plain) }

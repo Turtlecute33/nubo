@@ -43,6 +43,13 @@ class SearchIndexTest {
     }
 
     @Test
+    fun asciiFoldIsTheSameAsTheFullFold() {
+        val full = { s: String -> java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "").lowercase() }
+        for (name in listOf("Report 2026.PDF", "a_B-c (1).TXT", "~!@#\$%^&*()", "", "ÉTÉ", "Ångström", "naïve café"))
+            assertEquals(full(name), SearchIndex.fold(name))
+    }
+
+    @Test
     fun aLoopInTheTreeEnds() = runTest {
         val loop = listOf(folder("x", "y", "X"), folder("y", "x", "Y"), file("f", "x", "file.txt"))
         val hit = SearchIndex.of(loop).find("file", 5).single()
