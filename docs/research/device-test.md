@@ -130,6 +130,26 @@ The test account stayed logged in. Block screenshots was off during the test and
 | File picker, write | Refused ("Read only"); the Files app shows no delete, rename or move |
 | File picker, unknown document | `FileNotFoundException` with no name |
 
-Not tested: camera upload status (Immich and Google Photos on this phone back up DCIM, so a test photo could go to
-other accounts), the picker with app lock on, logout (no new login on the test account), and the "Password and
-two-factor" link (the browser can hold another Filen session).
+Not tested in this pass: logout (no new login on the test account) and the "Password and two-factor" link (the
+browser can hold another Filen session). Camera upload and the picker with app lock: see the next section.
+
+## 2026-11-21, camera upload status and file picker (release build, same branch)
+
+Synthetic 2 KB images in `DCIM/NuboTest` (not the Camera folder), "Only new photos", "Only on Wi-Fi" off on mobile
+data. Media access was given for the test and taken back after it; all settings are as before. An image from
+`adb push` stays `is_pending=1` (other apps do not see it) until a media scan: the test asked for a scan.
+
+| Test | Result |
+|---|---|
+| Camera upload on | "Last upload: Nothing uploaded yet" |
+| A new photo | Uploads; "Last upload" shows the time |
+| `CON.jpg` (a name that Filen refuses) | Under "Not uploaded" with its name; the notification shows only the count. "Try again": the transfer fails with "This name is reserved" |
+| The camera folder deleted for ever | **Defect**: Filen answers `parent_folder_not_found`, which the app did not know. Each photo failed 3 times with back-off and went to "Not uploaded", with no cause. After the fix: "Camera upload stopped: The camera upload folder is not there any more" on the screen and in a notification; the photo waits |
+| "Choose a folder" (new on that card) | The problem goes; the waiting photos and the listed ones upload to the new folder and leave the list |
+| Notification count | **Defect**: it kept the count from the time of a skip (3) after two of the items uploaded. After the fix: one notification at the end of a run, with the count then (2 = the list) |
+| Listed photos deleted from the phone | They leave the list when the screen opens |
+| Picker, the same 2 MB image | Same SHA-256 as the checked download in the app |
+| Picker from another app (`OPEN_DOCUMENT`, `image/*`) | Nubo is in the list of places; only images show, with thumbnails; picking a file closes the picker |
+| App lock on, app in the background | No root; listing gives nothing; a read fails with "Nubo is locked or logged out" |
+| App lock: the lock screen shows, then unlock | No root while the lock screen shows; the root is back after the unlock |
+| JobScheduler | A ready content-trigger job once waited more than 2 min to start (the system's choice); "Check now" ran it |

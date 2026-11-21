@@ -61,6 +61,7 @@ import app.nubo.ui.drive.FolderPicker
 import app.nubo.ui.nav.LocalNav
 import app.nubo.util.Format
 import app.nubo.work.CameraJob
+import app.nubo.work.FOLDER_GONE_TEXT
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -96,7 +97,10 @@ fun CameraSettingsScreen() {
     LaunchedEffect(status.skipped) {
         val (found, gone) = withContext(Dispatchers.IO) { mediaNames(context, status.skipped) }
         skipped = found
-        if (gone.isNotEmpty()) withContext(Dispatchers.IO) { app.cameraStatus.forget(gone) }
+        if (gone.isNotEmpty()) {
+            val left = withContext(Dispatchers.IO) { app.cameraStatus.forget(gone) }.skipped
+            if (left.isEmpty()) app.notifier.cameraSkippedDone()
+        }
     }
 
     /** Sends the items that did not upload to the transfer queue, where the user sees each result. */
@@ -211,10 +215,15 @@ fun CameraSettingsScreen() {
                         Spacer(Modifier.height(4.dp))
                         Text(problem, style = MaterialTheme.typography.bodyMedium)
                         Spacer(Modifier.height(12.dp))
-                        FilledTonalButton(onClick = {
-                            CameraJob.runNow(context, app.prefs.value.camera)
-                            app.messenger.show("Camera upload is checking for new photos")
-                        }) { Text("Try again") }
+                        // A folder that is gone needs another folder; a try again cannot help.
+                        if (problem == FOLDER_GONE_TEXT) {
+                            FilledTonalButton(onClick = { picking = true }) { Text("Choose a folder") }
+                        } else {
+                            FilledTonalButton(onClick = {
+                                CameraJob.runNow(context, app.prefs.value.camera)
+                                app.messenger.show("Camera upload is checking for new photos")
+                            }) { Text("Try again") }
+                        }
                     }
                 }
             }
@@ -331,6 +340,9 @@ fun CameraSettingsScreen() {
             onPick = { uuid, name ->
                 PhotoCache.name(uuid, name)
                 apply { it.copy(folder = uuid) }
+                // A new folder ends a "folder is gone" problem; the photos that wait upload now.
+                app.scope.launch(Dispatchers.IO) { app.cameraStatus.resolved() }
+                CameraJob.runNow(context, app.prefs.value.camera)
             },
             onDismiss = { picking = false },
         )

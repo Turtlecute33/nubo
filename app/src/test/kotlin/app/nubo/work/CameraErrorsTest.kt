@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 class CameraErrorsTest {
     @Test
     fun accountAndFolderErrorsDoNotCountAndHaveAText() {
-        for (code in listOf("max_storage_reached", "storage_limit_reached", "folder_not_found", "invalid_folder", "api_key_not_found")) {
+        for (code in listOf("max_storage_reached", "storage_limit_reached", "folder_not_found", "invalid_folder", "parent_folder_not_found", "api_key_not_found")) {
             val e = ApiException(code, 200)
             assertFalse(itemError(e), code)
             assertNotNull(accountProblem(e), code)

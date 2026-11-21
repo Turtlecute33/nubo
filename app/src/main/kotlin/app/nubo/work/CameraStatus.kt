@@ -27,19 +27,22 @@ class CameraStatus(dir: File) {
         _state.value = runCatching { parse(JSONObject(file.readFully().decodeToString())) }.getOrNull() ?: CameraState()
     }
 
-    /** One item uploaded: the run works, so an old problem is gone. */
-    fun uploaded() = change { it.copy(last = System.currentTimeMillis(), problem = null) }
+    /** The item [uri] uploaded: the run works, so an old problem is gone, and the item is not in the list. */
+    fun uploaded(uri: String) = change { it.copy(last = System.currentTimeMillis(), problem = null, skipped = it.skipped - uri) }
 
     /** A problem of the account or the folder stopped the run. [text] has no file names. */
     fun stopped(text: String) = change { it.copy(problem = text) }
 
-    /** An item that did not upload and that the job does not try again. Returns the number of such items. */
-    fun skipped(uri: String): Int = change { s -> s.copy(skipped = (s.skipped - uri + uri).takeLast(MAX_SKIPPED)) }.skipped.size
+    /** The user fixed the problem (another folder). */
+    fun resolved() = change { it.copy(problem = null) }
+
+    /** An item that did not upload and that the job does not try again. */
+    fun skipped(uri: String) = change { s -> s.copy(skipped = (s.skipped - uri + uri).takeLast(MAX_SKIPPED)) }
 
     /** The user sent these items to the transfer queue, or they are not on the phone any more. */
     fun forget(uris: Collection<String>) = change { it.copy(skipped = it.skipped - uris.toSet()) }
 
-    /** After a logout or a change of the folder. */
+    /** After a logout. */
     fun clear() = change { CameraState() }
 
     @Synchronized

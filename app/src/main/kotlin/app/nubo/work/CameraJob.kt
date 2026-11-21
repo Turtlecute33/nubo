@@ -109,70 +109,84 @@ class CameraJob : JobService() {
         val mark = withContext(Dispatchers.IO) { Mark(a, folder) }
         val entries = withContext(Dispatchers.IO) { pending(a, settings, mark) }
         var good = false
-        for (entry in entries) {
-            // A job has about 10 min. Stop before the time limit and run again at once: a time-out would grow
-            // the back-off (review 83).
-            if (SystemClock.elapsedRealtime() - began > RUN_MS) return true
-            // An item that failed or ran out of job time MAX_TRIES times (a very large video) gives way, so
-            // that it does not block every later photo (review 8). It is not backed up: the user sees it and
-            // can try again.
-            if (mark.spent(entry.id)) {
-                skip(a, entry)
-                withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
-                continue
-            }
-            // A cloud file with this name: the same photo (same size) is skipped, another file gets a free
-            // name, because an upload with the same name replaces the cloud file (review 9, F-52).
-            val name = a.drive.ops.freeName(folder, entry.name, entry.size)
-            if (name == null) {
-                withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
-                continue
-            }
-            val src = UploadSource(name, entry.mime, entry.modified, entry.taken) {
-                try {
-                    a.contentResolver.openInputStream(entry.uri) ?: throw Unreadable()
-                } catch (_: FileNotFoundException) {
-                    throw Unreadable()
-                } catch (_: SecurityException) {
-                    throw Unreadable()
+        // The "did not upload" list changed in this run: one notification at the end, with the count then.
+        var listed = false
+        try {
+            for (entry in entries) {
+                // A job has about 10 min. Stop before the time limit and run again at once: a time-out would grow
+                // the back-off (review 83).
+                if (SystemClock.elapsedRealtime() - began > RUN_MS) return true
+                // An item that failed or ran out of job time MAX_TRIES times (a very large video) gives way, so
+                // that it does not block every later photo (review 8). It is not backed up: the user sees it and
+                // can try again.
+                if (mark.spent(entry.id)) {
+                    skip(a, entry)
+                    listed = true
+                    withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
+                    continue
                 }
-            }
-            if (NameRules.problem(name) == null) {
-                val uploaded = try {
-                    // The try counts just before the upload: a stop in freeName is not a try (review 40).
-                    withContext(Dispatchers.IO + NonCancellable) { mark.attempt(entry.id) }
-                    a.uploader.upload(folder, src) {}
-                    true
-                } catch (_: Unreadable) {
-                    false // deleted or moved since the query, or no longer readable: nothing to upload
-                } catch (e: CancellationException) {
-                    // Wi-Fi lost, "Check now" or a setting change is not the item's fault; the time limit is (a
-                    // very large video). After a logout the mark is gone: do not write it again (review 40).
-                    if (stopReason != JobParameters.STOP_REASON_TIMEOUT && a.account.session != null) {
-                        withContext(Dispatchers.IO + NonCancellable) { mark.refund() }
+                // A cloud file with this name: the same photo (same size) is skipped, another file gets a free
+                // name, because an upload with the same name replaces the cloud file (review 9, F-52).
+                val name = a.drive.ops.freeName(folder, entry.name, entry.size)
+                if (name == null) {
+                    withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
+                    continue
+                }
+                val src = UploadSource(name, entry.mime, entry.modified, entry.taken) {
+                    try {
+                        a.contentResolver.openInputStream(entry.uri) ?: throw Unreadable()
+                    } catch (_: FileNotFoundException) {
+                        throw Unreadable()
+                    } catch (_: SecurityException) {
+                        throw Unreadable()
                     }
-                    throw e
-                } catch (e: Exception) {
-                    // Only an error of this item counts as a try (review 38).
-                    if (!itemError(e)) withContext(Dispatchers.IO + NonCancellable) { mark.refund() }
-                    throw e
                 }
-                // The first good upload of a run removes an old "Camera upload stopped" notification.
-                if (uploaded && !good) a.notifier.cameraWorks()
-                if (uploaded) withContext(Dispatchers.IO) { a.cameraStatus.uploaded() }
-                good = good || uploaded
-            } else {
-                skip(a, entry) // a name that Filen refuses
+                if (NameRules.problem(name) == null) {
+                    val uploaded = try {
+                        // The try counts just before the upload: a stop in freeName is not a try (review 40).
+                        withContext(Dispatchers.IO + NonCancellable) { mark.attempt(entry.id) }
+                        a.uploader.upload(folder, src) {}
+                        true
+                    } catch (_: Unreadable) {
+                        false // deleted or moved since the query, or no longer readable: nothing to upload
+                    } catch (e: CancellationException) {
+                        // Wi-Fi lost, "Check now" or a setting change is not the item's fault; the time limit is (a
+                        // very large video). After a logout the mark is gone: do not write it again (review 40).
+                        if (stopReason != JobParameters.STOP_REASON_TIMEOUT && a.account.session != null) {
+                            withContext(Dispatchers.IO + NonCancellable) { mark.refund() }
+                        }
+                        throw e
+                    } catch (e: Exception) {
+                        // Only an error of this item counts as a try (review 38).
+                        if (!itemError(e)) withContext(Dispatchers.IO + NonCancellable) { mark.refund() }
+                        throw e
+                    }
+                    // The first good upload of a run removes an old "Camera upload stopped" notification.
+                    if (uploaded && !good) a.notifier.cameraWorks()
+                    if (uploaded) {
+                        val uri = entry.uri.toString()
+                        listed = listed || uri in a.cameraStatus.state.value.skipped
+                        withContext(Dispatchers.IO) { a.cameraStatus.uploaded(uri) }
+                    }
+                    good = good || uploaded
+                } else {
+                    skip(a, entry) // a name that Filen refuses
+                    listed = true
+                }
+                withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
             }
-            withContext(Dispatchers.IO) { mark.finish(entry.id, entry.added) }
+            return entries.size >= MAX_PER_RUN
+        } finally {
+            if (listed) {
+                val left = a.cameraStatus.state.value.skipped.size
+                if (left > 0) a.notifier.cameraSkipped(left) else a.notifier.cameraSkippedDone()
+            }
         }
-        return entries.size >= MAX_PER_RUN
     }
 
-    /** Keeps [entry] in the list of items that did not upload, and tells the user the count. */
+    /** Keeps [entry] in the list of items that did not upload. The run tells the user the count at its end. */
     private suspend fun skip(a: NuboApp, entry: Entry) {
-        val count = withContext(Dispatchers.IO) { a.cameraStatus.skipped(entry.uri.toString()) }
-        a.notifier.cameraSkipped(count)
+        withContext(Dispatchers.IO) { a.cameraStatus.skipped(entry.uri.toString()) }
     }
 
     /** A media file that went away between the query and the upload. */
@@ -348,7 +362,11 @@ class CameraJob : JobService() {
 }
 
 private val STORAGE_FULL = setOf("max_storage_reached", "storage_limit_reached")
-private val FOLDER_GONE = setOf("folder_not_found", "invalid_folder")
+/** The problem text when the cloud folder is gone: the Camera upload screen then offers another folder. */
+internal const val FOLDER_GONE_TEXT = "The camera upload folder is not there any more"
+
+// An upload into a deleted folder gives "parent_folder_not_found" (device test 2026-11-21).
+private val FOLDER_GONE = setOf("folder_not_found", "invalid_folder", "parent_folder_not_found")
 
 /**
  * Short text for an error of the account or the cloud folder, not of one item: storage full, folder gone,
@@ -358,7 +376,7 @@ internal fun accountProblem(e: Throwable): String? = when {
     e !is ApiException -> null
     e.sessionEnded -> "The session ended. Log in again."
     e.code in STORAGE_FULL -> "Your Filen storage is full"
-    e.code in FOLDER_GONE -> "The camera upload folder is not there any more"
+    e.code in FOLDER_GONE -> FOLDER_GONE_TEXT
     else -> null
 }
 

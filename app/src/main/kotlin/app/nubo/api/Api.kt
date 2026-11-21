@@ -35,6 +35,7 @@ class ApiException(val code: String, val http: Int) : IOException("Filen error $
             code == "account_locked" || code == "too_many_requests" || code == "rate_limited" || http == 429 -> "Too many tries. Wait a few minutes."
             code == "storage_limit_reached" || code == "max_storage_reached" -> "Your Filen storage is full"
             code == "file_not_found" || code == "folder_not_found" || http == 404 -> "The item is not there any more"
+            code == "parent_folder_not_found" -> "The folder is not there any more"
             code == "link_password_wrong" || code == "wrong_password" -> "The link password is wrong"
             code == "subscription_needed" -> "Public links need a paid Filen plan"
             sessionEnded -> "The session ended. Log in again."

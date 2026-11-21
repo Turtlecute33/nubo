@@ -14,6 +14,7 @@ class UserTextTest {
         assertEquals("Connection lost", userText(IOException("Connection lost", RuntimeException("x"))))
         assertEquals("A name cannot contain / \\ : * ? \" < > |", userText(IOException("A name cannot contain / \\ : * ? \" < > |")))
         assertEquals("The answer from Filen is too large", userText(Transport.TooLarge()))
+        assertEquals("The folder is not there any more", app.nubo.api.ApiException("parent_folder_not_found", 200).userText)
     }
 
     @Test
