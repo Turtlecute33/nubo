@@ -400,7 +400,8 @@ class Transfers(private val app: NuboApp) {
     }
 
     companion object {
-        const val PARALLEL = 2
+        /** Files at a time. With many small files, the calls for each file set the speed, not the chunks. */
+        const val PARALLEL = 4
 
         /** Folders deeper than this in a picked folder are not uploaded. */
         private const val MAX_DEPTH = 64

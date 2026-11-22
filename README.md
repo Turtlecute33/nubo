@@ -32,8 +32,8 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
 - **Drive**: browse in a list or a grid, with a sort for each folder. Search, upload (files, or a
   folder with its subfolders; a second upload of the folder skips the files that are there), download, new folder, rename, move, trash and restore, favourites and
   recent files.
-- **Fast transfers**: parallel chunk uploads and downloads, a queue that goes on in the
-  background, and one place that shows the progress. Share files from other apps to upload them.
+- **Fast transfers**: many chunks at a time over the 8 upload and 8 download hosts of Filen, a
+  queue that goes on in the background, and one place that shows the progress. Share files from other apps to upload them.
 - **Photos**: a timeline of a cloud folder, and camera upload of new photos and videos. Camera
   upload can wait for Wi-Fi, and it starts again by itself after a reboot. Its screen shows the last
   upload, the count of items that wait, a problem that stopped it, and the items that did not upload,
@@ -89,8 +89,11 @@ run on GrapheneOS. "Nubo" is the Esperanto word for "cloud".
 - No ads, no analytics, no crash reports, no Google Play Services, no third-party SDKs.
 - Nubo connects only to Filen:
   - `gateway.filen.io`: the API.
-  - `ingest.filen.io`: uploads.
-  - `egest.filen.io`: downloads. Downloads and public links carry no account key.
+  - `ingest.filen.io`, `ingest.filen.net`, `ingest.filen-1.net` to `ingest.filen-6.net`: uploads.
+  - `egest.filen.io`, `egest.filen.net`, `egest.filen-1.net` to `egest.filen-6.net`: downloads.
+    Downloads and public links carry no account key.
+- Nubo spreads the chunks over these upload and download hosts, so that each host gets its own
+  connection. All of them belong to Filen, and the official Filen SDK uses them too.
 - The user agent is `nubo` on every phone. No device ID, install ID or push token.
 - Chat has no live connection. While a chat or the chat list is on the screen, Nubo asks Filen
   every 5 seconds whether something changed. In the background it asks nothing, so it shows no
@@ -215,12 +218,12 @@ Run the JVM tests, lint and the two builds:
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
 
-The tests (83) cover the crypto against the known-answer values of the Filen SDK, the v2 login with
-two-factor codes against a scripted server, the download order, size and hash checks, the chunk
-count, name rules, item decoding, sort order, the settings file, link URLs and link passwords, the
-retry rule, the error texts, camera upload errors, search, the viewer cache, the note and chat
-encryption, the checklist format, note previews, the unread rule of chats, the camera upload status
-file and the document IDs of the file picker.
+The tests (93) cover the crypto against the known-answer values of the Filen SDK, the v2 login with
+two-factor codes against a scripted server, the download order, size and hash checks, the download
+window, the host of each chunk, the chunk count, name rules, item decoding, sort order, the settings
+file, link URLs and link passwords, the retry rule, the error texts, camera upload errors, search,
+the viewer cache, the note and chat encryption, the checklist format, note previews, the unread rule
+of chats, the camera upload status file and the document IDs of the file picker.
 
 On a Pixel 9 Pro XL with GrapheneOS and a test account with synthetic files, these steps were
 tested: login, upload (empty, exactly 1 MiB and larger files), a download with the same SHA-256

@@ -3,8 +3,12 @@ package app.nubo.drive
 import app.nubo.api.Api
 import app.nubo.crypto.MetaV1
 import app.nubo.crypto.hex
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.bouncycastle.crypto.digests.Blake3Digest
 import java.io.IOException
@@ -51,21 +55,13 @@ class Content(private val api: Api, private val local: ChunkSource) {
     }
 
     /**
-     * Writes the plain file to [out] in order, with [PARALLEL] chunks on the way at a time. [progress] gets the
+     * Writes the plain file to [out] in order, with [PARALLEL] chunk requests at a time ([inOrder]). [progress] gets the
      * bytes done, on a background thread. Throws [GeneralSecurityException] when a chunk or the whole-file hash
      * does not match. The hash runs on [Dispatchers.Default]: the caller can be the main thread (review 42).
      */
     suspend fun write(item: Item, out: OutputStream, first: ByteArray? = null, progress: (Long) -> Unit) = withContext(Dispatchers.Default) {
-        val count = chunkCount(item)
         val check = Check(item)
-        var next = 0
-        val window = ArrayDeque<kotlinx.coroutines.Deferred<ByteArray>>()
-        while (next < count || window.isNotEmpty()) {
-            while (next < count && window.size < PARALLEL) {
-                val i = next++
-                window.addLast(async { if (i == 0 && first != null) first else chunk(item, i) })
-            }
-            val plain = window.removeFirst().await()
+        inOrder(chunkCount(item), { i -> if (i == 0 && first != null) first else chunk(item, i) }) { plain ->
             withContext(Dispatchers.IO) { out.write(plain) }
             check.update(plain)
             progress(check.done)
@@ -97,8 +93,31 @@ class Content(private val api: Api, private val local: ChunkSource) {
     }
 
     companion object {
-        /** Chunks in flight for one file: enough to fill a fast link, little memory (about 4 MiB). */
-        const val PARALLEL = 4
+        /**
+         * Chunk requests at a time for one file. Each chunk is one request (research F-46), so the wait for each
+         * request, not the link, sets the speed: more requests at a time give more speed.
+         */
+        const val PARALLEL = 16
+
+        /** Chunks of one file in memory at most (about 24 MiB): done chunks wait here for a slow earlier one. */
+        const val AHEAD = 24
+
+        /**
+         * Gets [fetch] of 0 until [count], [PARALLEL] at a time, and gives the values to [take] in order. A new
+         * request starts when any request ends, not only the oldest: one slow chunk does not stop the others.
+         */
+        suspend fun <T> inOrder(count: Int, fetch: suspend (Int) -> T, take: suspend (T) -> Unit) = coroutineScope {
+            val gate = Semaphore(PARALLEL)
+            val window = ArrayDeque<Deferred<T>>()
+            var next = 0
+            while (next < count || window.isNotEmpty()) {
+                while (next < count && window.size < AHEAD) {
+                    val i = next++
+                    window.addLast(async { gate.withPermit { fetch(i) } })
+                }
+                take(window.removeFirst().await())
+            }
+        }
 
         /**
          * The chunk count of [item] from its size (research F-46). A server count that does not agree is refused

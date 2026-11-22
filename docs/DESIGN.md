@@ -22,6 +22,8 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
 - Repository: public on GitHub, `Turtlecute33/nubo`. Releases there and on Zapstore.
 - Speed (owner, 2026-11-21): search and Photos keep their last tree read on the disk, encrypted with the cache
   key, so that they show at once after a restart ([review/performance-2026-11-21.md](review/performance-2026-11-21.md), P-03).
+- Transfer speed (owner, 2026-11-22): chunks go to the 8 upload and the 8 download hosts of Filen, with more
+  requests at a time ([review/transfers-2026-11-22.md](review/transfers-2026-11-22.md)).
 - Protocol: a clean-room Kotlin version. The code reference is the MIT Go SDK (`filen-sdk-go`).
   The AGPL SDKs (`filen-rs`, `filen-sdk-ts`) are read for facts only. No code is copied from them.
   The unit tests use the known-answer values of `filen-rs` as data (F-11).
@@ -68,6 +70,10 @@ Protocol facts have IDs `F-nn` in [research/protocol.md](research/protocol.md).
   again when it is old (search 60 s, Photos 5 min) or when a write of this app changed a folder.
 - Listings and trees stream in and decrypt on all cores while the answer still comes in (`Decode.stream`,
   `util/Parallel`). The stream reads up to 4 MiB ahead of the parser (`Http.stream`).
+- Transfers: each chunk is one request, so the wait for each request sets the speed. A download has 16 chunk
+  requests at a time and keeps up to 24 chunks in memory (`Content.inOrder`, also for offline copies); an upload
+  has 8. The queue runs 4 files at a time. `Api` limits the whole app to 32 download and 16 upload requests,
+  the numbers of the Filen TS SDK (F-87), and spreads the chunks over the Filen hosts (§8).
 
 ## 5. Dependencies
 
@@ -143,8 +149,12 @@ PBKDF2 by hand over HMAC-SHA512, RSA-OAEP, HMAC), `ImageDecoder`, `MediaPlayer`,
 
 ## 8. Network and privacy
 
-- Hosts: `gateway.filen.io` (API), `ingest.filen.io` (upload), `egest.filen.io` (download). No
-  fallback hosts, no CDN config, no WebSocket (F-12..F-18, F-91). Notes and chat use the gateway only.
+- Hosts: `gateway.filen.io` (API); `ingest.` (upload) and `egest.` (download) on `filen.io`, `filen.net` and
+  `filen-1.net` to `filen-6.net` (F-13, F-14). The TS SDK uses all of them. Each domain has its own certificate,
+  so each gets its own connection; on `filen.io` alone, all chunks and the API calls share one HTTP/2 connection
+  (same addresses, one wildcard certificate). A chunk goes to a host from its file and index; a retry goes to
+  the `filen.io` host, in case a network blocks a domain. No CDN config, no WebSocket (F-15..F-18, F-91).
+  Notes and chat use the gateway only.
 - HTTPS only, system CAs only, certificate transparency on Android 16 and later (Android 15 ignores the
   setting; review 73). No pinning: Filen publishes no pins (F-16).
 - User agent `nubo`, the same on every device. No device ID, install ID or push token (F-92, F-93).

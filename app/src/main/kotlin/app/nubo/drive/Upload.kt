@@ -129,8 +129,8 @@ class Uploader(private val drive: Drive) {
     }
 
     companion object {
-        /** Chunks in flight for one upload. */
-        const val PARALLEL = 3
+        /** Chunks in flight for one upload (about this count in MiB of memory). [Api] limits the whole app. */
+        const val PARALLEL = 8
 
         /** Reads until [buf] is full or the stream ends; returns the count. */
         private fun InputStream.readFully(buf: ByteArray): Int {

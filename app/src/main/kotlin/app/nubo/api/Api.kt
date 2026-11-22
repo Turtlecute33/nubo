@@ -7,6 +7,8 @@ import android.util.JsonToken
 import android.util.MalformedJsonException
 import app.nubo.net.Transport
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.EOFException
@@ -54,6 +56,10 @@ class ApiException(val code: String, val http: Int) : IOException("Filen error $
  * egest. Every answer is `{status, message, code, data}`. [key] is the API key of the session, null before login.
  */
 class Api(private val transport: Transport, @Volatile var key: String? = null) {
+    /** Chunk requests of the whole app at a time, as in the Filen TS SDK (research F-87). */
+    private val uploads = Semaphore(MAX_UPLOADS)
+    private val downloads = Semaphore(MAX_DOWNLOADS)
+
     /** The same transport with another API key: a login checks a new key before the app uses it. */
     fun withKey(key: String) = Api(transport, key)
 
@@ -107,16 +113,20 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
             "Authorization" to "Bearer ${key ?: throw ApiException("api_key_not_found", 401)}",
             "Content-Type" to "application/octet-stream",
         )
-        val o = retrying { parse(transport.send("POST", "$INGEST/v3/upload?$q", headers, data)) }.optJSONObject("data") ?: JSONObject()
+        val o = uploads.withPermit {
+            retrying { attempt -> parse(transport.send("POST", "${host(INGESTS, uuid, index, attempt)}/v3/upload?$q", headers, data)) }
+        }.optJSONObject("data") ?: JSONObject()
         return o.optText("region") to o.optText("bucket")
     }
 
     /** Downloads one encrypted chunk (at most 1 MiB + nonce + tag). No API key: the chunk is useless without the file key. */
-    suspend fun downloadChunk(region: String, bucket: String, uuid: String, index: Int): ByteArray = retrying {
-        // 2 MiB: a v1 chunk can be base64 text, about 1.4 MB for 1 MiB of data (research F-54, F-56).
-        val r = transport.send("GET", "$EGEST/${enc(region)}/${enc(bucket)}/${enc(uuid)}/$index", maxBytes = 2 * CHUNK)
-        if (r.code != 200) throw ApiException("chunk_${r.code}", r.code)
-        r.body
+    suspend fun downloadChunk(region: String, bucket: String, uuid: String, index: Int): ByteArray = downloads.withPermit {
+        retrying { attempt ->
+            // 2 MiB: a v1 chunk can be base64 text, about 1.4 MB for 1 MiB of data (research F-54, F-56).
+            val r = transport.send("GET", "${host(EGESTS, uuid, index, attempt)}/${enc(region)}/${enc(bucket)}/${enc(uuid)}/$index", maxBytes = 2 * CHUNK)
+            if (r.code != 200) throw ApiException("chunk_${r.code}", r.code)
+            r.body
+        }
     }
 
     private fun parse(r: Transport.Response): JSONObject {
@@ -133,11 +143,11 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
      * The only retry of the app (review 45): network errors and 5xx/429 get two more tries with a short wait; API
      * errors and a too large answer (review 65) do not.
      */
-    private suspend fun <T> retrying(block: suspend () -> T): T {
+    private suspend fun <T> retrying(block: suspend (attempt: Int) -> T): T {
         var attempt = 0
         while (true) {
             try {
-                return block()
+                return block(attempt)
             } catch (e: IOException) {
                 val again = e !is Transport.TooLarge && (e !is ApiException || e.http >= 500 || e.http == 429)
                 if (!again || ++attempt > 2) throw e
@@ -148,9 +158,22 @@ class Api(private val transport: Transport, @Volatile var key: String? = null) {
 
     companion object {
         const val GATEWAY = "https://gateway.filen.io"
-        const val INGEST = "https://ingest.filen.io"
-        const val EGEST = "https://egest.filen.io"
         const val CHUNK = 1024 * 1024
+        const val MAX_UPLOADS = 16
+        const val MAX_DOWNLOADS = 32
+
+        /**
+         * The upload and download hosts of Filen (research F-13, F-14). The first one is the main host. Each domain has
+         * its own certificate, so each host gets its own connection: with one host, all chunks share one HTTP/2
+         * connection (and the API calls too: same addresses, same certificate).
+         */
+        val INGESTS = listOf("filen.io", "filen.net", "filen-1.net", "filen-2.net", "filen-3.net", "filen-4.net", "filen-5.net", "filen-6.net")
+            .map { "https://ingest.$it" }
+        val EGESTS = INGESTS.map { it.replace("://ingest.", "://egest.") }
+
+        /** The host of a chunk: spread by file and chunk. A retry goes to the main host, if a network blocks a domain. */
+        internal fun host(hosts: List<String>, uuid: String, index: Int, attempt: Int): String =
+            if (attempt > 0) hosts[0] else hosts[Math.floorMod(uuid.hashCode() + index, hosts.size)]
 
         private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8)
 

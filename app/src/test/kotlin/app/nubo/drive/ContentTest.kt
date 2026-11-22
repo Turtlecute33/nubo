@@ -5,7 +5,9 @@ import app.nubo.api.Api
 import app.nubo.crypto.DataKey
 import app.nubo.crypto.hex
 import app.nubo.net.Transport
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.bouncycastle.crypto.digests.Blake3Digest
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -48,10 +50,52 @@ class ContentTest {
         val out = ByteArrayOutputStream()
         Content(Api(fake), { _, _ -> null }).write(item(blake3(plain)), out) {}
         assertContentEquals(plain, out.toByteArray())
-        assertTrue(fake.requests.all { it.host == "egest.filen.io" })
+        // Spread over the Filen download hosts: each host has its own connection.
+        assertTrue(fake.requests.all { "https://${it.host}" in Api.EGESTS })
+        assertEquals(3, fake.requests.map { it.host }.toSet().size)
         // Downloads carry no API key (research F-30).
         assertTrue(fake.requests.all { it.headers["Authorization"] == null })
         assertNull(fake.requests.firstOrNull { it.method != "GET" })
+    }
+
+    @Test
+    fun aRetryGoesToTheMainHost() = runTest {
+        val c = chunks(plain)
+        var failed = false
+        val fake = FakeTransport { r ->
+            val index = r.url.substringAfterLast('/').toInt()
+            if (index == 1 && !failed) {
+                failed = true
+                throw IOException("blocked")
+            }
+            Transport.Response(200, c[index])
+        }
+        val out = ByteArrayOutputStream()
+        Content(Api(fake), { _, _ -> null }).write(item(blake3(plain)), out) {}
+        assertContentEquals(plain, out.toByteArray())
+        val second = fake.requests.filter { it.url.endsWith("/1") }
+        assertEquals(2, second.size)
+        assertEquals("egest.filen.io", second[1].host)
+    }
+
+    @Test
+    fun aSlowChunkDoesNotStopTheOthersAndTheOrderStays() = runTest {
+        val count = 100
+        val slow = CompletableDeferred<Unit>()
+        var running = 0
+        var most = 0
+        val got = ArrayList<Int>()
+        Content.inOrder(count, { i ->
+            running++
+            most = maxOf(most, running)
+            // Chunk 0 ends only when the last chunk of a full window starts: the old window of the oldest chunk stopped here.
+            if (i == Content.AHEAD - 1) slow.complete(Unit)
+            if (i == 0) slow.await() else yield()
+            running--
+            i
+        }) { got += it }
+        assertEquals((0 until count).toList(), got)
+        assertTrue(most <= Content.PARALLEL)
     }
 
     @Test

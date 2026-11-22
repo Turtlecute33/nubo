@@ -187,3 +187,21 @@ back after it. The phone was on mobile data.
 
 The count of waiting media does not change while the screen shows; it changes at the next upload and when the screen
 opens again. The settings of the phone are as before the test; the test folders stay on the test account.
+
+## 2026-11-22, transfer speed for 0.5.2 (release build with a temporary A/B switch)
+
+New install of the test build (the owner logged in again). Wi-Fi with a VPN. The details and the table are in
+[review/transfers-2026-11-22.md](../review/transfers-2026-11-22.md).
+
+| Test | Result |
+|---|---|
+| Unit tests | 93 tests pass |
+| Download, 100 MiB, old against new settings (median of 3) | 37.2 s against 10.2 s |
+| Upload, 64 MiB (median of 3) | 34.7 s against 10.6 s; the upload over the 8 hosts downloads again with the right BLAKE3 hash |
+| 40 small uploads, 34 small downloads (median of 3) | 13.4 s against 7.2 s; 9.2 s against 3.2 s |
+| Keep offline, 100 MiB | 46.3 s against 9.2 s |
+| Java heap | At most 70 MB live of 256 MB |
+
+The test folder `/zzz-perf` was deleted after the test. A first run stopped at the folder step with an
+`IOException`, probably because of the write lock of a run that was stopped (the lease ends after 60 s); the next run
+passed that step in 0.24 s.

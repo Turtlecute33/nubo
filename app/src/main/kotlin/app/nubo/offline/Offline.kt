@@ -87,9 +87,11 @@ class Offline(context: Context, private val cacheKey: () -> DataKey?) : ChunkSou
             }
             try {
                 val check = Content.Check(item)
-                for (i in 0 until count) {
-                    val data = fetch(i)
+                var done = 0
+                // The same parallel window as a download; the checks and the writes go in chunk order.
+                Content.inOrder(count, fetch) { data ->
                     check.update(Content.decrypt(item, data))
+                    val i = done++
                     withContext(Dispatchers.IO) { File(tmp, "$i").writeBytes(data) }
                     progress(i + 1)
                 }
